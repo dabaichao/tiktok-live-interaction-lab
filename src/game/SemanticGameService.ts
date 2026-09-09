@@ -1,4 +1,5 @@
 import { createHmac, randomUUID } from "node:crypto";
+import type { AdminConfigService } from "../admin/AdminConfigService.js";
 import type { NormalizedLiveEvent } from "../core/events.js";
 import { SemanticEngine, type SemanticBucket } from "./SemanticEngine.js";
 import type { SemanticGameGateway, SemanticGameMessage } from "./SemanticGameGateway.js";
@@ -54,13 +55,9 @@ interface RoundState {
   lastBonusWord?: string;
 }
 
-const ROUND_DURATION_MS = Number(process.env.SEMANTIC_ROUND_DURATION_MS ?? 240_000);
-const SETTLEMENT_DURATION_MS = Number(process.env.SEMANTIC_SETTLEMENT_MS ?? 5_000);
-const TICK_INTERVAL_MS = Number(process.env.SEMANTIC_TICK_INTERVAL_MS ?? 1_000);
-
 export class SemanticGameService {
-  private readonly engine = new SemanticEngine({ language: process.env.SEMANTIC_LANGUAGE ?? undefined });
-  private readonly hintWordClient = new HintWordClient();
+  private readonly engine: SemanticEngine;
+  private readonly hintWordClient: HintWordClient;
   private readonly players = new Map<string, PlayerView>();
   private readonly unlockedHints = new Map<number, Record<string, unknown>>();
   private round: RoundState;
@@ -76,12 +73,15 @@ export class SemanticGameService {
   private eventQueue: Promise<void> = Promise.resolve();
   private giftQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly gateway: SemanticGameGateway) {
+  constructor(private readonly gateway: SemanticGameGateway, private readonly adminConfig: AdminConfigService) {
+    const config = adminConfig.current;
+    this.engine = new SemanticEngine({ language: config.game.language, baseUrl: config.embedding.baseUrl, model: config.embedding.model, timeoutMs: config.embedding.timeoutMs, apiKey: process.env.EMBEDDING_API_KEY });
+    this.hintWordClient = new HintWordClient({ baseUrl: config.llm.baseUrl, model: config.llm.model, timeoutMs: config.llm.timeoutMs, apiKey: process.env.HINT_LLM_API_KEY });
     this.round = this.createRound();
   }
 
   start(): void {
-    this.interval = setInterval(() => this.tick(), TICK_INTERVAL_MS);
+    this.interval = setInterval(() => this.tick(), this.adminConfig.current.game.tickIntervalMs);
   }
 
   stop(): void {
@@ -122,11 +122,11 @@ export class SemanticGameService {
 
   private createRound(): RoundState {
     this.roundNo += 1;
-    const configuredAnswer = this.engine.normalize(process.env.SEMANTIC_ANSWER ?? "");
+    const configuredAnswer = this.engine.normalize(this.adminConfig.current.game.answer);
     const answer = configuredAnswer && this.engine.answerPool.includes(configuredAnswer) ? configuredAnswer : this.engine.answerPool[(this.roundNo - 1) % this.engine.answerPool.length];
     const now = Date.now();
     const answerSecret = process.env.ANSWER_CODE_SECRET ?? "local-dev-answer-code";
-    return { roundId: randomUUID(), roundNo: this.roundNo, status: "RUNNING", answer, answerCode: createHmac("sha256", answerSecret).update(answer).digest("hex").slice(0, 12), answerLength: answer.length, startedAt: now, endsAt: now + ROUND_DURATION_MS, guesses: [] };
+    return { roundId: randomUUID(), roundNo: this.roundNo, status: "RUNNING", answer, answerCode: createHmac("sha256", answerSecret).update(answer).digest("hex").slice(0, 12), answerLength: answer.length, startedAt: now, endsAt: now + this.adminConfig.current.game.roundDurationMs, guesses: [] };
   }
 
   private tick(): void {
@@ -135,7 +135,7 @@ export class SemanticGameService {
     if (this.round.status === "RUNNING" && now >= this.round.endsAt) {
       this.round.status = "ANSWERED";
       this.round.answeredAt = now;
-      this.round.settleAt = now + SETTLEMENT_DURATION_MS;
+      this.round.settleAt = now + this.adminConfig.current.game.settlementDurationMs;
       this.broadcast({ type: "ROUND_TIMEOUT", round: this.roundView(), topGuesses: this.topGuesses() });
     } else if (this.round.status === "ANSWERED" && this.round.settleAt && now >= this.round.settleAt) {
       this.settleRound();
@@ -166,6 +166,13 @@ export class SemanticGameService {
       this.reject(event, validation.reason ?? "not_word");
       return undefined;
     }
+    if (!this.adminConfig.current.game.allowUnknownInputs) {
+      const resolution = this.engine.resolve(validation.normalizedGuess);
+      if (resolution.status !== "resolved") {
+        this.reject(event, resolution.status === "ambiguous" ? "ambiguous_word" : "unknown_word");
+        return undefined;
+      }
+    }
     const roundId = this.round.roundId;
     const result = await this.engine.evaluateWithEmbedding(this.round.answer, validation.normalizedGuess);
     if (this.round.roundId !== roundId || this.round.status !== "RUNNING") {
@@ -180,7 +187,7 @@ export class SemanticGameService {
     if (result.isCorrect) {
       this.round.status = "ANSWERED";
       this.round.answeredAt = now;
-      this.round.settleAt = now + SETTLEMENT_DURATION_MS;
+      this.round.settleAt = now + this.adminConfig.current.game.settlementDurationMs;
       this.broadcast({ type: "ROUND_ANSWERED", round: this.roundView(), winner: guess, topGuesses: this.topGuesses() });
     }
     return guess;
@@ -190,7 +197,7 @@ export class SemanticGameService {
     const count = Math.max(1, Number(event.payload.count ?? 1));
     this.likesThisRound += count;
     this.totalLikes = Math.max(this.totalLikes + count, Number(event.payload.totalLikes ?? 0));
-    if (this.likesThisRound >= 1000 && this.hintsUnlocked < 3) this.unlockHint("likes", event);
+    if (this.likesThisRound >= this.adminConfig.current.game.likesPerHint && this.hintsUnlocked < 3) this.unlockHint("likes", event);
     this.gateway.broadcast({ type: "ROOM_STATS", viewerCount: this.viewerCount, totalLikes: this.totalLikes, metrics: this.metrics(), hintsUnlocked: this.hintsUnlocked });
     await this.submitRandomWords(event, 1, "like", [], this.round.roundId);
   }
@@ -198,19 +205,26 @@ export class SemanticGameService {
   private handleGift(event: NormalizedLiveEvent): void {
     if (this.hintsUnlocked < 4) this.unlockHint("gift", event);
     else {
-      this.round.endsAt += 30_000;
-      this.broadcastActivity(`${this.actorName(event)} 送出礼物，全场加时 30 秒`, event);
-      this.broadcast({ type: "GIFT_EFFECT", effect: "EXTRA_TIME", seconds: 30, actor: this.actor(event), round: this.roundView() });
+      const extraTimeMs = this.adminConfig.current.game.giftExtraTimeMs;
+      this.round.endsAt += extraTimeMs;
+      this.broadcastActivity(`${this.actorName(event)} 送出礼物，全场加时 ${Math.floor(extraTimeMs / 1000)} 秒`, event);
+      this.broadcast({ type: "GIFT_EFFECT", effect: "EXTRA_TIME", seconds: Math.floor(extraTimeMs / 1000), actor: this.actor(event), round: this.roundView() });
     }
     const rawValue = Number(event.payload.diamondCount ?? event.payload.count ?? 1);
     const giftValue = Number.isFinite(rawValue) ? Math.max(1, Math.floor(rawValue)) : 1;
-    const wordCount = giftValue * 10;
+    const wordCount = giftValue * this.adminConfig.current.game.giftWordsMultiplier;
     const expectedRoundId = this.round.roundId;
     const hints = this.llmHintContext();
     const phase = String(this.timelineView().phaseLabel ?? "探索期");
     this.broadcastActivity(`${this.actorName(event)} 送礼，正在让 hy3 根据 ${hints.length} 条提示生成 ${wordCount} 个随机词`, event);
     this.giftQueue = this.giftQueue.then(async () => {
-      const modelWords = await this.generateGiftWords(wordCount, hints, phase);
+      let modelWords = await this.generateGiftWords(wordCount, hints, phase);
+      let generatedSource: BonusWordSource = "hy3";
+      if (modelWords.length < wordCount && this.adminConfig.current.game.allowLocalGiftFallback) {
+        const localWords = this.localFallbackWords(wordCount - modelWords.length, [...modelWords]);
+        modelWords = [...modelWords, ...localWords];
+        generatedSource = modelWords.length > 0 && localWords.length > 0 ? "local-fallback" : "hy3";
+      }
       if (this.round.roundId !== expectedRoundId || this.round.status !== "RUNNING") return;
       if (modelWords.length === 0) {
         this.gateway.broadcast({ type: "ROOM_ERROR", code: "HY3_HINT_GENERATION_FAILED", message: "礼物已收到，但 hy3 没有返回可用随机词；本次未使用本地词库补足", source: "hy3", requestedCount: wordCount, generatedCount: 0 });
@@ -220,8 +234,8 @@ export class SemanticGameService {
       if (modelWords.length < wordCount) {
         this.gateway.broadcast({ type: "ROOM_ERROR", code: "HY3_HINT_GENERATION_PARTIAL", message: `hy3 只返回了 ${modelWords.length}/${wordCount} 个随机词，本次不使用本地词库补足`, source: "hy3", requestedCount: wordCount, generatedCount: modelWords.length });
       }
-      this.broadcastActivity(`${this.actorName(event)} 送礼，hy3 已生成 ${modelWords.length}/${wordCount} 个随机词`, event);
-      await this.submitRandomWords(event, modelWords.length, "gift", modelWords, expectedRoundId);
+      this.broadcastActivity(`${this.actorName(event)} 送礼，${generatedSource === "hy3" ? "hy3" : "hy3 + 本地补足"} 已生成 ${modelWords.length}/${wordCount} 个随机词`, event);
+      await this.submitRandomWords(event, modelWords.length, "gift", modelWords, expectedRoundId, generatedSource);
     }).catch(() => {
       // Keep later gifts alive if an unexpected integration error escapes the client.
     });
@@ -250,7 +264,7 @@ export class SemanticGameService {
     return words;
   }
 
-  private async submitRandomWords(event: NormalizedLiveEvent, count: number, triggerType: Exclude<GuessTrigger, "chat">, modelWords: string[] = [], expectedRoundId?: string): Promise<void> {
+  private async submitRandomWords(event: NormalizedLiveEvent, count: number, triggerType: Exclude<GuessTrigger, "chat">, modelWords: string[] = [], expectedRoundId?: string, modelSource?: BonusWordSource): Promise<void> {
     for (let index = 0; index < count; index += 1) {
       if (this.round.status !== "RUNNING" || (expectedRoundId && this.round.roundId !== expectedRoundId)) return;
       const previousWord = this.round.lastBonusWord;
@@ -261,7 +275,7 @@ export class SemanticGameService {
       let candidate = normalizedModelCandidate && normalizedModelCandidate !== this.round.answer && this.engine.validate(normalizedModelCandidate).ok && !this.bonusWordsThisRound.has(normalizedModelCandidate)
         ? normalizedModelCandidate
         : "";
-      let bonusSource: BonusWordSource = "hy3";
+      let bonusSource: BonusWordSource = modelSource ?? "hy3";
       if (!candidate && triggerType !== "gift") {
         bonusSource = "local-fallback";
         for (let attempt = 0; !candidate && attempt < 30; attempt += 1) {
@@ -279,6 +293,17 @@ export class SemanticGameService {
       this.broadcastActivity(`${this.actorName(event)} 触发${triggerLabel}：${guess.word}${previousWord ? ` · 上一词：${previousWord}` : ""}`, event);
       if (guess.isCorrect) return;
     }
+  }
+
+  private localFallbackWords(count: number, excluded: string[]): string[] {
+    const words: string[] = [];
+    const excludedSet = new Set([...excluded, ...this.bonusWordsThisRound, this.round.answer]);
+    for (let attempt = 0; attempt < count * 30 && words.length < count; attempt += 1) {
+      const candidate = this.engine.randomCandidate(this.round.answer);
+      if (excludedSet.has(candidate) || words.includes(candidate)) continue;
+      words.push(candidate);
+    }
+    return words;
   }
 
   private handleRoomStats(event: NormalizedLiveEvent): void {
@@ -304,7 +329,7 @@ export class SemanticGameService {
     this.broadcastActivity(`${this.actorName(event)} 请求跳过本轮`, event);
     this.round.status = "ANSWERED";
     this.round.answeredAt = Date.now();
-    this.round.settleAt = Date.now() + SETTLEMENT_DURATION_MS;
+    this.round.settleAt = Date.now() + this.adminConfig.current.game.settlementDurationMs;
     this.broadcast({ type: "ROUND_SKIPPED", round: this.roundView() });
   }
 
@@ -335,7 +360,7 @@ export class SemanticGameService {
     const winnerContext = winner ? this.rankContext(winner.playerId) : undefined;
     const winnerSummary = winner && winnerContext ? { ...winner, scoreDelta: winnerAward?.delta ?? winner.scoreDelta, currentScore: winnerContext.currentScore, currentRank: winnerContext.currentRank, pointsToSurpass: winnerContext.pointsToSurpass, tier: tierForScore(winnerContext.currentScore) } : undefined;
     this.round.status = "SETTLEMENT";
-    this.round.settleAt = Date.now() + SETTLEMENT_DURATION_MS;
+    this.round.settleAt = Date.now() + this.adminConfig.current.game.settlementDurationMs;
     this.broadcast({ type: "ROUND_SETTLED", round: this.roundView(), winner: winnerSummary, awards: awardViews, topGuesses: this.topGuesses(), scoreboard: this.scoreboard() });
   }
 

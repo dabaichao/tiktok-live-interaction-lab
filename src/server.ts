@@ -5,6 +5,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
 import pino from "pino";
+import { AdminConfigService } from "./admin/AdminConfigService.js";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
 import { ActionMapper, type RulesConfig } from "./actions/ActionMapper.js";
 import { createApiRouter, errorHandler, ApiError, type LabController } from "./api/routes.js";
@@ -51,6 +52,7 @@ class InteractionLab implements LabController {
   private readonly actionGateway: ActionGateway;
   private readonly semanticGateway: SemanticGameGateway;
   private readonly semanticGame!: SemanticGameService;
+  private readonly adminConfig: AdminConfigService;
   private readonly statuses: Record<SourceKind, SourceStatus> = structuredClone(statusDefaults);
   private readonly counts: Record<string, number> = {};
   private readonly eventTimes: number[] = [];
@@ -60,6 +62,8 @@ class InteractionLab implements LabController {
 
   constructor() {
     this.dataDir = resolve(process.env.DATA_DIR ?? join(projectRoot, "data"));
+    this.adminConfig = new AdminConfigService(this.dataDir);
+    this.adminConfig.loadSync();
     const debug = process.env.DEBUG === "true" || process.env.DEBUG === "1";
     this.normalizer = new Normalizer({
       debug,
@@ -71,7 +75,7 @@ class InteractionLab implements LabController {
     this.eventGateway = new EventGateway(logger);
     this.actionGateway = new ActionGateway(logger);
     this.semanticGateway = new SemanticGameGateway(logger, () => this.semanticGame.snapshot());
-    this.semanticGame = new SemanticGameService(this.semanticGateway);
+    this.semanticGame = new SemanticGameService(this.semanticGateway, this.adminConfig);
 
     this.bindSource(this.tiktok, "tiktok");
     this.bindSource(this.replay, "replay");
@@ -96,10 +100,12 @@ class InteractionLab implements LabController {
     if (this.tiktok.isConnected()) await this.tiktok.disconnect();
     this.sessions.end("tiktok");
     this.currentTikTokUsername = username.replace(/^@/, "");
+    await this.adminConfig.update({ tiktok: { username: this.currentTikTokUsername } });
     this.sessions.start("tiktok", { username: this.currentTikTokUsername });
     logger.info({ source: "tiktok", username: this.currentTikTokUsername }, "source_connect");
     try {
-      await this.tiktok.connect({ username: this.currentTikTokUsername });
+      const config = this.adminConfig.current;
+      await this.tiktok.connect({ username: this.currentTikTokUsername, autoReconnect: config.tiktok.autoReconnect, enableExtendedGiftInfo: config.tiktok.extendedGiftInfo, debug: config.observability.debug, storeRawEvents: config.observability.storeRawEvents });
     } catch (error) {
       this.sessions.end("tiktok");
       throw new ApiError("SOURCE_CONNECT_FAILED", error instanceof Error ? error.message : String(error), 502);
@@ -201,7 +207,16 @@ class InteractionLab implements LabController {
         enabled: process.env.DEBUG === "true" || process.env.DEBUG === "1",
         latestDecoded: this.latestDebug,
       },
+      adminConfig: this.adminConfig.view(),
     };
+  }
+
+  adminConfigView(): unknown {
+    return this.adminConfig.view();
+  }
+
+  async updateAdminConfig(patch: unknown): Promise<unknown> {
+    return this.adminConfig.update(patch);
   }
 
   dictionaryStatus(): unknown {

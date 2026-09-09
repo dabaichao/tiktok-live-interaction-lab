@@ -28,7 +28,7 @@ export class TikTokSource implements LiveEventSource {
   async connect(config: SourceConfig): Promise<void> {
     this.config = config;
     this.intentionalDisconnect = false;
-    this.shouldReconnect = true;
+    this.shouldReconnect = this.config.autoReconnect !== false;
     this.reconnectAttempt = 0;
     this.hasConnectedOnce = false;
     this.lastResolvedRoomId = undefined;
@@ -42,7 +42,7 @@ export class TikTokSource implements LiveEventSource {
     this.lastDecoded = undefined;
     this.lastRaw = undefined;
     try {
-      await this.connectWithOptions(true);
+      await this.connectWithOptions(this.config.enableExtendedGiftInfo !== false);
     } catch (error) {
       const roomId = this.lastResolvedRoomId ?? this.connection?.roomId;
       if (!this.intentionalDisconnect && roomId && isExtendedInfoFallbackError(error)) {
@@ -206,11 +206,11 @@ export class TikTokSource implements LiveEventSource {
   }
 
   private isDebug(): boolean {
-    return process.env.DEBUG === "true" || process.env.DEBUG === "1";
+    return this.config.debug === true || process.env.DEBUG === "true" || process.env.DEBUG === "1";
   }
 
   private storeRawEvents(): boolean {
-    return process.env.STORE_RAW_EVENTS === "true" || process.env.STORE_RAW_EVENTS === "1";
+    return this.config.storeRawEvents === true || process.env.STORE_RAW_EVENTS === "true" || process.env.STORE_RAW_EVENTS === "1";
   }
 
   private scheduleReconnect(): void {

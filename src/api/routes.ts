@@ -5,6 +5,8 @@ import type { SimulatorMessage } from "../sources/SimulatorSource.js";
 
 export interface LabController {
   status(): unknown;
+  adminConfigView(): unknown;
+  updateAdminConfig(patch: unknown): Promise<unknown>;
   dictionaryStatus(): unknown;
   resolveDictionaryWord(text: string, language?: string): unknown;
   connect(username: string): Promise<unknown>;
@@ -51,6 +53,10 @@ export function createApiRouter(controller: LabController): Router {
   const router = Router();
 
   router.get("/status", (_req, res) => res.json({ ok: true, data: controller.status() }));
+  router.get("/admin/config", (_req, res) => res.json({ ok: true, data: controller.adminConfigView() }));
+  router.patch("/admin/config", asyncHandler(async (req, res) => {
+    res.json({ ok: true, data: await controller.updateAdminConfig(req.body) });
+  }));
   router.get("/dictionary/status", (_req, res) => res.json({ ok: true, data: controller.dictionaryStatus() }));
   router.get("/dictionary/resolve", (req, res) => {
     const text = typeof req.query.text === "string" ? req.query.text.trim() : "";

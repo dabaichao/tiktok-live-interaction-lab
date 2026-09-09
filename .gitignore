@@ -3,6 +3,7 @@ dist/
 dist-web/
 .env
 data/sessions/
+data/admin-config.json
 data/dictionary-proposals/
 coverage/
 .docx-review/
