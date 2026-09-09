@@ -1,6 +1,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 import type { AdminConfigService } from "../admin/AdminConfigService.js";
 import type { NormalizedLiveEvent } from "../core/events.js";
+import type { ConceptDictionary } from "../dictionary/ConceptDictionary.js";
 import { SemanticEngine, type SemanticBucket } from "./SemanticEngine.js";
 import type { SemanticGameGateway, SemanticGameMessage } from "./SemanticGameGateway.js";
 import { HintWordClient, type HintContext } from "./HintWordClient.js";
@@ -8,7 +9,7 @@ import { HintWordClient, type HintContext } from "./HintWordClient.js";
 type RoundStatus = "RUNNING" | "ANSWERED" | "SETTLEMENT" | "WAITING";
 type PlayerTier = "青铜" | "白银" | "黄金" | "铂金" | "钻石" | "王者";
 type GuessTrigger = "chat" | "like" | "gift";
-type BonusWordSource = "hy3" | "local-fallback";
+type BonusWordSource = "llm" | "local-fallback";
 
 interface PlayerView {
   playerId: string;
@@ -73,10 +74,10 @@ export class SemanticGameService {
   private eventQueue: Promise<void> = Promise.resolve();
   private giftQueue: Promise<void> = Promise.resolve();
 
-  constructor(private readonly gateway: SemanticGameGateway, private readonly adminConfig: AdminConfigService) {
+  constructor(private readonly gateway: SemanticGameGateway, private readonly adminConfig: AdminConfigService, dictionary?: ConceptDictionary) {
     const config = adminConfig.current;
-    this.engine = new SemanticEngine({ language: config.game.language, baseUrl: config.embedding.baseUrl, model: config.embedding.model, timeoutMs: config.embedding.timeoutMs, apiKey: process.env.EMBEDDING_API_KEY });
-    this.hintWordClient = new HintWordClient({ baseUrl: config.llm.baseUrl, model: config.llm.model, timeoutMs: config.llm.timeoutMs, apiKey: process.env.HINT_LLM_API_KEY });
+    this.engine = new SemanticEngine({ dictionary, language: config.game.language, baseUrl: config.embedding.baseUrl, model: config.embedding.model, timeoutMs: config.embedding.timeoutMs, apiKey: process.env.EMBEDDING_API_KEY });
+    this.hintWordClient = new HintWordClient({ baseUrl: config.llm.baseUrl, routingMode: config.llm.routingMode, preferredModel: config.llm.preferredModel, fallbackModels: config.llm.fallbackModels, fixedModel: config.llm.fixedModel, timeoutMs: config.llm.timeoutMs, apiKey: process.env.HINT_LLM_API_KEY });
     this.round = this.createRound();
   }
 
@@ -216,25 +217,25 @@ export class SemanticGameService {
     const expectedRoundId = this.round.roundId;
     const hints = this.llmHintContext();
     const phase = String(this.timelineView().phaseLabel ?? "探索期");
-    this.broadcastActivity(`${this.actorName(event)} 送礼，正在让 hy3 根据 ${hints.length} 条提示生成 ${wordCount} 个随机词`, event);
+    this.broadcastActivity(`${this.actorName(event)} 送礼，正在让 AI 根据 ${hints.length} 条提示生成 ${wordCount} 个随机词`, event);
     this.giftQueue = this.giftQueue.then(async () => {
       let modelWords = await this.generateGiftWords(wordCount, hints, phase);
-      let generatedSource: BonusWordSource = "hy3";
+      let generatedSource: BonusWordSource = "llm";
       if (modelWords.length < wordCount && this.adminConfig.current.game.allowLocalGiftFallback) {
         const localWords = this.localFallbackWords(wordCount - modelWords.length, [...modelWords]);
         modelWords = [...modelWords, ...localWords];
-        generatedSource = modelWords.length > 0 && localWords.length > 0 ? "local-fallback" : "hy3";
+        generatedSource = modelWords.length > 0 && localWords.length > 0 ? "local-fallback" : "llm";
       }
       if (this.round.roundId !== expectedRoundId || this.round.status !== "RUNNING") return;
       if (modelWords.length === 0) {
-        this.gateway.broadcast({ type: "ROOM_ERROR", code: "HY3_HINT_GENERATION_FAILED", message: "礼物已收到，但 hy3 没有返回可用随机词；本次未使用本地词库补足", source: "hy3", requestedCount: wordCount, generatedCount: 0 });
-        this.broadcastActivity(`${this.actorName(event)} 送礼，但 hy3 未返回有效随机词，本次未使用本地词库补足`, event);
+        this.gateway.broadcast({ type: "LLM_WORD_GENERATION_FAILED", code: "LLM_WORD_GENERATION_FAILED", message: "礼物已收到，但当前模型路由没有返回可用随机词；本次未使用本地词库补足", source: "llm", requestedCount: wordCount, generatedCount: 0 });
+        this.broadcastActivity(`${this.actorName(event)} 送礼，但 AI 模型没有返回有效随机词，本次未使用本地词库补足`, event);
         return;
       }
       if (modelWords.length < wordCount) {
-        this.gateway.broadcast({ type: "ROOM_ERROR", code: "HY3_HINT_GENERATION_PARTIAL", message: `hy3 只返回了 ${modelWords.length}/${wordCount} 个随机词，本次不使用本地词库补足`, source: "hy3", requestedCount: wordCount, generatedCount: modelWords.length });
+        this.gateway.broadcast({ type: "LLM_WORD_GENERATION_PARTIAL", code: "LLM_WORD_GENERATION_PARTIAL", message: `AI 模型只返回了 ${modelWords.length}/${wordCount} 个随机词，本次不使用本地词库补足`, source: "llm", requestedCount: wordCount, generatedCount: modelWords.length });
       }
-      this.broadcastActivity(`${this.actorName(event)} 送礼，${generatedSource === "hy3" ? "hy3" : "hy3 + 本地补足"} 已生成 ${modelWords.length}/${wordCount} 个随机词`, event);
+      this.broadcastActivity(`${this.actorName(event)} 送礼，${generatedSource === "llm" ? "AI 模型" : "AI 模型 + 本地补足"} 已生成 ${modelWords.length}/${wordCount} 个随机词`, event);
       await this.submitRandomWords(event, modelWords.length, "gift", modelWords, expectedRoundId, generatedSource);
     }).catch(() => {
       // Keep later gifts alive if an unexpected integration error escapes the client.
@@ -275,7 +276,7 @@ export class SemanticGameService {
       let candidate = normalizedModelCandidate && normalizedModelCandidate !== this.round.answer && this.engine.validate(normalizedModelCandidate).ok && !this.bonusWordsThisRound.has(normalizedModelCandidate)
         ? normalizedModelCandidate
         : "";
-      let bonusSource: BonusWordSource = modelSource ?? "hy3";
+      let bonusSource: BonusWordSource = modelSource ?? "llm";
       if (!candidate && triggerType !== "gift") {
         bonusSource = "local-fallback";
         for (let attempt = 0; !candidate && attempt < 30; attempt += 1) {
@@ -436,9 +437,9 @@ export class SemanticGameService {
   }
 
   private timedHintView(stage: number): Record<string, unknown> {
-    if (stage === 1) return { label: "词汇类型", value: this.engine.themeFor(this.round.answer) };
-    if (stage === 2) return { label: "首字母", value: this.round.answer[0].toUpperCase() };
-    return { label: "词语长度", value: `${this.round.answerLength} 个字母` };
+    if (stage === 1) return { label: "方向提示", value: this.engine.hintFor(this.round.answer) };
+    if (stage === 2) return { label: "开头提示", value: this.engine.language === "zh-Hans" ? this.round.answer.slice(0, 1) : this.round.answer[0].toUpperCase() };
+    return { label: "长度提示", value: `${this.round.answerLength} ${this.engine.language === "zh-Hans" ? "个字" : "个字母"}` };
   }
 
   private topGuesses(): GuessView[] {
@@ -463,10 +464,10 @@ export class SemanticGameService {
 
   private hintView(): Record<string, unknown> {
     const hints = [
-      { label: "词性", value: "常见英文名词或动词" },
-      { label: "首字母", value: this.round.answer[0].toUpperCase() },
-      { label: "主题", value: this.round.answer.length <= 5 ? "日常高频词" : "直播常见主题" },
-      { label: "长度", value: `${this.round.answerLength} 个字母` },
+      this.timedHintView(1),
+      this.timedHintView(2),
+      this.timedHintView(3),
+      { label: "相关范围", value: this.engine.language === "zh-Hans" ? "日常生活中可能遇到的词" : "a common everyday word" },
     ];
     return hints[this.hintsUnlocked - 1] ?? hints[0];
   }

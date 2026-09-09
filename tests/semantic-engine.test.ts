@@ -16,6 +16,11 @@ describe("SemanticEngine", () => {
     expect(engine.validate("!!!").reason).toBe("not_word");
   });
 
+  it("provides a Chinese directional hint from the concept definition", () => {
+    const engine = new SemanticEngine({ language: "zh-Hans" });
+    expect(engine.hintFor("苹果")).toBe("水果的一种");
+  });
+
   it("returns a perfect result for the hidden answer", () => {
     const result = engine.evaluate("apple", "APPLE");
     expect(result).toMatchObject({ normalizedGuess: "apple", displayScore: 100, rank: 1, bucket: "correct", isCorrect: true });

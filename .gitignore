@@ -5,6 +5,7 @@ dist-web/
 data/sessions/
 data/admin-config.json
 data/dictionary-proposals/
+data/dictionary-library/
 coverage/
 .docx-review/
 *.log

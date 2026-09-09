@@ -21,6 +21,10 @@ export interface DictionaryProposal {
 export interface DictionaryGapFillClientOptions {
   baseUrl?: string;
   model?: string;
+  routingMode?: "preferred-fallback" | "fixed";
+  preferredModel?: string;
+  fallbackModels?: string[];
+  fixedModel?: string;
   apiKey?: string;
   timeoutMs?: number;
   maxBatchSize?: number;
@@ -30,6 +34,9 @@ export interface DictionaryGapFillStatus {
   configured: boolean;
   baseUrl: string;
   model: string;
+  routingMode: "preferred-fallback" | "fixed";
+  models: string[];
+  lastModelUsed?: string;
   timeoutMs: number;
   maxBatchSize: number;
   lastError?: string;
@@ -49,22 +56,30 @@ const ALLOWED_LANGUAGES = new Set(["en", "vi", "zh-Hans"]);
  */
 export class DictionaryGapFillClient {
   private readonly baseUrl: string;
-  private readonly model: string;
+  private readonly routingMode: "preferred-fallback" | "fixed";
+  private readonly preferredModel: string;
+  private readonly fallbackModels: string[];
+  private readonly fixedModel: string;
   private readonly apiKey?: string;
   private readonly timeoutMs: number;
   private readonly maxBatchSize: number;
   private lastError?: string;
+  private lastModelUsed?: string;
 
   constructor(options: DictionaryGapFillClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? process.env.HINT_LLM_BASE_URL ?? "https://www.ai68.asia/v1").replace(/\/$/, "");
-    this.model = options.model ?? process.env.HINT_LLM_MODEL ?? "hy3";
+    const legacySingleModel = options.model !== undefined && options.routingMode === undefined && options.preferredModel === undefined && options.fallbackModels === undefined && options.fixedModel === undefined;
+    this.routingMode = options.routingMode ?? (legacySingleModel ? "fixed" : "preferred-fallback");
+    this.preferredModel = options.preferredModel ?? options.model ?? process.env.HINT_LLM_MODEL ?? "hy3";
+    this.fallbackModels = uniqueModels(options.fallbackModels ?? (legacySingleModel ? [] : (process.env.HINT_LLM_FALLBACK_MODELS ?? "minimax-m3,deepseek-v4-flash").split(",")));
+    this.fixedModel = options.fixedModel ?? process.env.HINT_LLM_FIXED_MODEL ?? this.preferredModel;
     this.apiKey = options.apiKey ?? process.env.HINT_LLM_API_KEY;
     this.timeoutMs = options.timeoutMs ?? Number(process.env.HINT_LLM_TIMEOUT_MS ?? 45_000);
     this.maxBatchSize = Math.max(1, Math.min(100, Math.floor(options.maxBatchSize ?? Number(process.env.DICTIONARY_GAP_FILL_BATCH_SIZE ?? 100))));
   }
 
   status(): DictionaryGapFillStatus {
-    return { configured: Boolean(this.apiKey), baseUrl: this.baseUrl, model: this.model, timeoutMs: this.timeoutMs, maxBatchSize: this.maxBatchSize, lastError: this.lastError };
+    return { configured: Boolean(this.apiKey), baseUrl: this.baseUrl, model: this.models()[0], routingMode: this.routingMode, models: this.models(), lastModelUsed: this.lastModelUsed, timeoutMs: this.timeoutMs, maxBatchSize: this.maxBatchSize, lastError: this.lastError };
   }
 
   async propose(input: { language: DictionaryLanguage; concepts: GapFillConceptInput[] }): Promise<DictionaryProposal[]> {
@@ -73,12 +88,17 @@ export class DictionaryGapFillClient {
     const proposals: DictionaryProposal[] = [];
     for (let index = 0; index < input.concepts.length; index += this.maxBatchSize) {
       const batch = input.concepts.slice(index, index + this.maxBatchSize);
-      proposals.push(...await this.proposeBatch(input.language, batch));
+      let batchProposals: DictionaryProposal[] = [];
+      for (const model of this.models()) {
+        batchProposals = await this.proposeBatch(input.language, batch, model);
+        if (batchProposals.length > 0) break;
+      }
+      proposals.push(...batchProposals);
     }
     return proposals;
   }
 
-  private async proposeBatch(language: DictionaryLanguage, concepts: GapFillConceptInput[]): Promise<DictionaryProposal[]> {
+  private async proposeBatch(language: DictionaryLanguage, concepts: GapFillConceptInput[], model: string): Promise<DictionaryProposal[]> {
     const allowedConceptIds = new Set(concepts.map((concept) => concept.conceptId));
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -87,7 +107,7 @@ export class DictionaryGapFillClient {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
         body: JSON.stringify({
-          model: this.model,
+          model,
           temperature: 0.1,
           max_tokens: Math.min(16_000, Math.max(2_000, concepts.length * 32)),
           response_format: { type: "json_object" },
@@ -114,6 +134,7 @@ export class DictionaryGapFillClient {
       const proposals = this.parse(body.choices?.[0]?.message?.content ?? body.choices?.[0]?.text, language, allowedConceptIds);
       if (proposals.length === 0) throw new Error("Dictionary gap-fill returned no valid proposals");
       this.lastError = undefined;
+      this.lastModelUsed = model;
       return proposals;
     } catch (error) {
       this.lastError = error instanceof Error ? error.message : String(error);
@@ -138,21 +159,25 @@ export class DictionaryGapFillClient {
       const conceptId = typeof item.conceptId === "string" ? item.conceptId.trim() : "";
       const label = normalizeText(typeof item.label === "string" ? item.label : "");
       if (!allowedConceptIds.has(conceptId) || !label || !isSafeSurface(label)) continue;
-      this.addProposal(output, seen, conceptId, language, label, "translated");
+      this.addProposal(output, seen, conceptId, language, label, "translated", this.lastModelUsed ?? this.models()[0]);
       const aliases = Array.isArray(item.aliases) ? item.aliases : [];
       for (const rawAlias of aliases.slice(0, 3)) {
         const alias = normalizeText(typeof rawAlias === "string" ? rawAlias : "");
-        if (alias && isSafeSurface(alias)) this.addProposal(output, seen, conceptId, language, alias, "synonym");
+        if (alias && isSafeSurface(alias)) this.addProposal(output, seen, conceptId, language, alias, "synonym", this.lastModelUsed ?? this.models()[0]);
       }
     }
     return output;
   }
 
-  private addProposal(output: DictionaryProposal[], seen: Set<string>, conceptId: string, lang: DictionaryLanguage, text: string, type: DictionaryProposal["type"]): void {
+  private addProposal(output: DictionaryProposal[], seen: Set<string>, conceptId: string, lang: DictionaryLanguage, text: string, type: DictionaryProposal["type"], model: string): void {
     const key = `${conceptId}:${lang}:${text}`;
     if (seen.has(key)) return;
     seen.add(key);
-    output.push({ conceptId, lang, text, type, exact: type !== "synonym", reviewStatus: "pending", sourceId: "llm", model: this.model });
+    output.push({ conceptId, lang, text, type, exact: type !== "synonym", reviewStatus: "pending", sourceId: "llm", model });
+  }
+
+  private models(): string[] {
+    return this.routingMode === "fixed" ? uniqueModels([this.fixedModel]) : uniqueModels([this.preferredModel, ...this.fallbackModels]);
   }
 }
 
@@ -190,3 +215,6 @@ function isSafeSurface(text: string): boolean {
   return text.length <= 120 && !/[\u0000-\u001f\u007f]/u.test(text) && /[\p{L}]/u.test(text);
 }
 
+function uniqueModels(models: string[]): string[] {
+  return [...new Set(models.map((model) => model.trim()).filter(Boolean))];
+}

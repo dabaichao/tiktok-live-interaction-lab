@@ -14,6 +14,7 @@ export const adminConfigSchema = z.object({
   game: z.object({
     language: languageSchema,
     answer: z.string().max(160),
+    dictionaryPackageId: z.string().min(1).max(160),
     roundDurationMs: z.number().int().min(30_000).max(3_600_000),
     settlementDurationMs: z.number().int().min(100).max(120_000),
     tickIntervalMs: z.number().int().min(100).max(10_000),
@@ -30,7 +31,10 @@ export const adminConfigSchema = z.object({
   }),
   llm: z.object({
     baseUrl: z.string().url(),
-    model: z.string().min(1).max(200),
+    routingMode: z.enum(["preferred-fallback", "fixed"]),
+    preferredModel: z.string().min(1).max(200),
+    fallbackModels: z.array(z.string().min(1).max(200)).max(20),
+    fixedModel: z.string().min(1).max(200),
     timeoutMs: z.number().int().min(1_000).max(180_000),
     batchSize: z.number().int().min(1).max(100),
   }),
@@ -73,7 +77,7 @@ export class AdminConfigService {
     const path = this.filePath();
     try {
       const parsed = JSON.parse(await readFile(path, "utf8")) as unknown;
-      this.config = adminConfigSchema.parse(deepMerge(this.config, parsed));
+      this.config = adminConfigSchema.parse(migrateLegacyConfig(deepMerge(this.config, parsed), parsed));
       this.source = "file";
     } catch {
       this.config = adminConfigSchema.parse(this.config);
@@ -84,7 +88,7 @@ export class AdminConfigService {
     const path = this.filePath();
     try {
       const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
-      this.config = adminConfigSchema.parse(deepMerge(this.config, parsed));
+      this.config = adminConfigSchema.parse(migrateLegacyConfig(deepMerge(this.config, parsed), parsed));
       this.source = "file";
     } catch {
       this.config = adminConfigSchema.parse(this.config);
@@ -111,7 +115,7 @@ export class AdminConfigService {
     const previous = this.config;
     this.config = adminConfigSchema.parse(deepMerge(this.config, patch));
     this.lastEffects = {
-      requiresRestart: previous.game.language !== this.config.game.language || previous.game.tickIntervalMs !== this.config.game.tickIntervalMs || previous.embedding.baseUrl !== this.config.embedding.baseUrl || previous.embedding.model !== this.config.embedding.model || previous.llm.baseUrl !== this.config.llm.baseUrl || previous.llm.model !== this.config.llm.model || previous.observability.debug !== this.config.observability.debug || previous.observability.storeRawEvents !== this.config.observability.storeRawEvents,
+      requiresRestart: previous.game.language !== this.config.game.language || previous.game.dictionaryPackageId !== this.config.game.dictionaryPackageId || previous.game.tickIntervalMs !== this.config.game.tickIntervalMs || previous.embedding.baseUrl !== this.config.embedding.baseUrl || previous.embedding.model !== this.config.embedding.model || previous.llm.baseUrl !== this.config.llm.baseUrl || previous.llm.routingMode !== this.config.llm.routingMode || previous.llm.preferredModel !== this.config.llm.preferredModel || previous.llm.fixedModel !== this.config.llm.fixedModel || previous.llm.fallbackModels.join(",") !== this.config.llm.fallbackModels.join(",") || previous.observability.debug !== this.config.observability.debug || previous.observability.storeRawEvents !== this.config.observability.storeRawEvents,
       requiresReconnect: previous.tiktok.autoReconnect !== this.config.tiktok.autoReconnect || previous.tiktok.extendedGiftInfo !== this.config.tiktok.extendedGiftInfo,
     };
     await mkdir(dirname(this.filePath()), { recursive: true });
@@ -134,7 +138,8 @@ function defaultsFromEnvironment(): AdminConfig {
     },
     game: {
       language: parseLanguage(process.env.SEMANTIC_LANGUAGE),
-      answer: process.env.SEMANTIC_ANSWER ?? "yacht",
+      answer: process.env.SEMANTIC_ANSWER ?? "苹果",
+      dictionaryPackageId: "builtin:multi_core_v1",
       roundDurationMs: numberEnv("SEMANTIC_ROUND_DURATION_MS", 240_000),
       settlementDurationMs: numberEnv("SEMANTIC_SETTLEMENT_MS", 5_000),
       tickIntervalMs: numberEnv("SEMANTIC_TICK_INTERVAL_MS", 1_000),
@@ -151,7 +156,10 @@ function defaultsFromEnvironment(): AdminConfig {
     },
     llm: {
       baseUrl: process.env.HINT_LLM_BASE_URL ?? "https://www.ai68.asia/v1",
-      model: process.env.HINT_LLM_MODEL ?? "hy3",
+      routingMode: "preferred-fallback",
+      preferredModel: process.env.HINT_LLM_MODEL ?? "hy3",
+      fallbackModels: parseModels(process.env.HINT_LLM_FALLBACK_MODELS),
+      fixedModel: process.env.HINT_LLM_FIXED_MODEL ?? process.env.HINT_LLM_MODEL ?? "hy3",
       timeoutMs: numberEnv("HINT_LLM_TIMEOUT_MS", 45_000),
       batchSize: numberEnv("DICTIONARY_GAP_FILL_BATCH_SIZE", 100),
     },
@@ -164,12 +172,16 @@ function defaultsFromEnvironment(): AdminConfig {
 }
 
 function parseLanguage(value: string | undefined): AdminConfig["game"]["language"] {
-  return value === "vi" || value === "zh-Hans" ? value : "en";
+  return value === "en" || value === "vi" ? value : "zh-Hans";
 }
 
 function numberEnv(name: string, fallback: number): number {
   const value = Number(process.env[name]);
   return Number.isFinite(value) ? Math.floor(value) : fallback;
+}
+
+function parseModels(value: string | undefined): string[] {
+  return (value ?? "minimax-m3,deepseek-v4-flash").split(",").map((model) => model.trim()).filter(Boolean).slice(0, 20);
 }
 
 function deepMerge<T>(base: T, patch: unknown): T {
@@ -181,4 +193,16 @@ function deepMerge<T>(base: T, patch: unknown): T {
     else merged[key] = value;
   }
   return merged as T;
+}
+
+function migrateLegacyConfig(merged: AdminConfig, persisted: unknown): AdminConfig {
+  if (!persisted || typeof persisted !== "object") return merged;
+  const raw = persisted as Record<string, unknown>;
+  const rawLlm = raw.llm && typeof raw.llm === "object" ? raw.llm as Record<string, unknown> : undefined;
+  const mergedLlm = merged.llm as AdminConfig["llm"];
+  if (rawLlm && typeof rawLlm.model === "string" && !rawLlm.preferredModel) {
+    mergedLlm.preferredModel = rawLlm.model;
+    if (!rawLlm.fixedModel) mergedLlm.fixedModel = rawLlm.model;
+  }
+  return merged;
 }

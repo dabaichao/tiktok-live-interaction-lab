@@ -195,7 +195,7 @@ function updateGameSnapshot(message: any): void {
   $("summaryLanguage").textContent = languageLabels[room.language] ?? room.language ?? "—";
   $("summaryRound").textContent = round.roundNo ? `第 ${round.roundNo} 局` : "—";
   $("summaryGuesses").textContent = formatNumber(metrics.validGuesses ?? 0);
-  $("summaryModel").textContent = `${message.embedding?.model ?? "Embedding"} · ${message.hintModel?.configured ? `${message.hintModel.model} 已配置` : "hy3 未配置 key"}`;
+  $("summaryModel").textContent = `${message.embedding?.model ?? "Embedding"} · ${message.hintModel?.configured ? `${message.hintModel.model} 已配置` : "模型 key 未配置"}`;
   const snapshot = $("gameSnapshot");
   snapshot.innerHTML = [["轮次", round.roundNo ? `第 ${round.roundNo} 局` : "—"], ["有效猜词", formatNumber(metrics.validGuesses ?? 0)], ["参与人数", formatNumber(metrics.uniqueGuessers ?? 0)], ["提示数", formatNumber(message.hintsUnlocked ?? 0)]].map(([label, value]) => `<div><span>${label}</span><strong>${value}</strong></div>`).join("");
 }
@@ -205,21 +205,36 @@ function setValue(id: string, value: unknown): void { const element = $(id) as H
 function fillConfig(view: any): void {
   latestConfig = view;
   const config = view.config;
-  setValue("cfgGameLanguage", config.game.language); setValue("cfgAnswer", config.game.answer);
+  setValue("cfgGameLanguage", config.game.language); setValue("cfgDictionaryPackage", config.game.dictionaryPackageId); setValue("cfgAnswer", config.game.answer);
   setValue("cfgRoundDuration", Number(config.game.roundDurationMs) / 1000); setValue("cfgSettlementDuration", Number(config.game.settlementDurationMs) / 1000); setValue("cfgLikesPerHint", config.game.likesPerHint); setValue("cfgGiftWordsMultiplier", config.game.giftWordsMultiplier); setValue("cfgGiftExtraTime", Number(config.game.giftExtraTimeMs) / 1000); setValue("cfgTickInterval", config.game.tickIntervalMs); setValue("cfgAllowUnknown", config.game.allowUnknownInputs); setValue("cfgAllowFallback", config.game.allowLocalGiftFallback);
   setValue("cfgTikTokUsername", config.tiktok.username); setValue("username", config.tiktok.username); setValue("cfgAutoReconnect", config.tiktok.autoReconnect); setValue("cfgExtendedGift", config.tiktok.extendedGiftInfo);
   setValue("cfgEmbeddingBaseUrl", config.embedding.baseUrl); setValue("cfgEmbeddingModel", config.embedding.model); setValue("cfgEmbeddingTimeout", config.embedding.timeoutMs);
-  setValue("cfgHintBaseUrl", config.llm.baseUrl); setValue("cfgHintModel", config.llm.model); setValue("cfgHintTimeout", config.llm.timeoutMs); setValue("cfgBatchSize", config.llm.batchSize);
+  setValue("cfgHintBaseUrl", config.llm.baseUrl); setValue("cfgLlmRoutingMode", config.llm.routingMode); setValue("cfgPreferredModel", config.llm.preferredModel); setValue("cfgFallbackModels", config.llm.fallbackModels.join(",")); setValue("cfgFixedModel", config.llm.fixedModel); setValue("cfgHintTimeout", config.llm.timeoutMs); setValue("cfgBatchSize", config.llm.batchSize);
   setValue("cfgEventLimit", config.observability.eventBufferLimit); setValue("cfgDebug", config.observability.debug); setValue("cfgStoreRaw", config.observability.storeRawEvents);
   $("embeddingKeyStatus").textContent = view.secrets.embeddingApiKeyConfigured ? "已配置" : "未配置";
   $("hintKeyStatus").textContent = view.secrets.hintLlmApiKeyConfigured ? "已配置" : "未配置";
-  $("dictionaryVersion").textContent = latestGameSnapshot?.room?.wordlistId ?? "加载中";
+  $("activeHintModel").textContent = latestGameSnapshot?.hintModel?.lastModelUsed ?? latestGameSnapshot?.hintModel?.model ?? config.llm.preferredModel;
   $("dictionaryMissing").textContent = latestGameSnapshot?.room?.dictionary ? Object.values(latestGameSnapshot.room.dictionary.missingLabelsByLanguage ?? {}).join(" / ") : "—";
-  $("runtimeInfo").innerHTML = `<div><span>配置来源</span><strong>${view.persistence.source === "file" ? "本地持久化" : "环境变量默认"}</strong></div><div><span>配置文件</span><strong>${escapeHtml(view.persistence.path)}</strong></div><div><span>Embedding</span><strong>${escapeHtml(config.embedding.model)}</strong></div><div><span>提示模型</span><strong>${escapeHtml(config.llm.model)}</strong></div>`;
+  $("runtimeInfo").innerHTML = `<div><span>配置来源</span><strong>${view.persistence.source === "file" ? "本地持久化" : "环境变量默认"}</strong></div><div><span>配置文件</span><strong>${escapeHtml(view.persistence.path)}</strong></div><div><span>Embedding</span><strong>${escapeHtml(config.embedding.model)}</strong></div><div><span>模型路由</span><strong>${config.llm.routingMode === "fixed" ? `固定 ${escapeHtml(config.llm.fixedModel)}` : `首选 ${escapeHtml(config.llm.preferredModel)} · ${config.llm.fallbackModels.length} 个兜底`}</strong></div>`;
 }
 
 async function refreshStatus(): Promise<void> { try { updateStatus(await api("/status")); } catch (error) { showError(error); } }
 async function refreshConfig(): Promise<void> { try { fillConfig(await api("/admin/config")); } catch (error) { showError(error); } }
+async function refreshDictionaries(): Promise<void> {
+  try {
+    const library = await api("/dictionaries");
+    $("wordlistCount").textContent = formatNumber(library.wordlistCount);
+    $("questionBankCount").textContent = formatNumber(library.questionBankCount);
+    $("supplementCount").textContent = formatNumber(library.supplementCount);
+    $("activeDictionaryId").textContent = library.activePackageId ?? "—";
+    const select = $("cfgDictionaryPackage") as HTMLSelectElement;
+    select.innerHTML = library.packages.map((item: any) => `<option value="${escapeHtml(item.packageId)}">${escapeHtml(item.wordlistId)} · ${item.packageType === "question-bank" ? "题目库" : "词库"} · ${item.stats?.concepts ?? 0} 项</option>`).join("");
+    if (latestConfig?.config?.game?.dictionaryPackageId) setValue("cfgDictionaryPackage", latestConfig.config.game.dictionaryPackageId);
+    const list = $("dictionaryPackageList");
+    list.className = library.packages.length ? "package-list" : "package-list empty-state";
+    list.innerHTML = library.packages.length ? library.packages.map((item: any) => `<div class="package-row"><div><strong>${escapeHtml(item.wordlistId)}</strong><span>${item.packageType === "question-bank" ? "题目库" : "词库"} · ${escapeHtml(item.release)} · ${item.stats?.concepts ?? 0} 个概念</span></div><b>${item.active ? "当前" : "可激活"}</b></div>`).join("") : "暂无已上传词库。";
+  } catch (error) { showError(error); }
+}
 async function refreshSessions(): Promise<void> {
   try {
     const sessions = await api("/sessions");
@@ -228,14 +243,14 @@ async function refreshSessions(): Promise<void> {
   } catch (error) { showError(error); }
 }
 
-async function refreshAll(): Promise<void> { await Promise.all([refreshStatus(), refreshConfig(), refreshSessions()]); }
+async function refreshAll(): Promise<void> { await Promise.all([refreshStatus(), refreshConfig(), refreshSessions(), refreshDictionaries()]); }
 
 async function saveConfig(): Promise<void> {
   const patchValue = {
     tiktok: { username: ($("cfgTikTokUsername") as HTMLInputElement).value.trim(), autoReconnect: ($("cfgAutoReconnect") as HTMLInputElement).checked, extendedGiftInfo: ($("cfgExtendedGift") as HTMLInputElement).checked },
-    game: { language: ($("cfgGameLanguage") as HTMLSelectElement).value, answer: ($("cfgAnswer") as HTMLInputElement).value.trim(), roundDurationMs: Math.round(Number(($('cfgRoundDuration') as HTMLInputElement).value) * 1000), settlementDurationMs: Math.round(Number(($('cfgSettlementDuration') as HTMLInputElement).value) * 1000), tickIntervalMs: Number(($('cfgTickInterval') as HTMLInputElement).value), likesPerHint: Number(($('cfgLikesPerHint') as HTMLInputElement).value), giftWordsMultiplier: Number(($('cfgGiftWordsMultiplier') as HTMLInputElement).value), giftExtraTimeMs: Math.round(Number(($('cfgGiftExtraTime') as HTMLInputElement).value) * 1000), allowUnknownInputs: ($('cfgAllowUnknown') as HTMLInputElement).checked, allowLocalGiftFallback: ($('cfgAllowFallback') as HTMLInputElement).checked },
+    game: { language: ($("cfgGameLanguage") as HTMLSelectElement).value, dictionaryPackageId: ($("cfgDictionaryPackage") as HTMLSelectElement).value, answer: ($("cfgAnswer") as HTMLInputElement).value.trim(), roundDurationMs: Math.round(Number(($('cfgRoundDuration') as HTMLInputElement).value) * 1000), settlementDurationMs: Math.round(Number(($('cfgSettlementDuration') as HTMLInputElement).value) * 1000), tickIntervalMs: Number(($('cfgTickInterval') as HTMLInputElement).value), likesPerHint: Number(($('cfgLikesPerHint') as HTMLInputElement).value), giftWordsMultiplier: Number(($('cfgGiftWordsMultiplier') as HTMLInputElement).value), giftExtraTimeMs: Math.round(Number(($('cfgGiftExtraTime') as HTMLInputElement).value) * 1000), allowUnknownInputs: ($('cfgAllowUnknown') as HTMLInputElement).checked, allowLocalGiftFallback: ($('cfgAllowFallback') as HTMLInputElement).checked },
     embedding: { baseUrl: ($("cfgEmbeddingBaseUrl") as HTMLInputElement).value.trim(), model: ($("cfgEmbeddingModel") as HTMLInputElement).value.trim(), timeoutMs: Number(($('cfgEmbeddingTimeout') as HTMLInputElement).value) },
-    llm: { baseUrl: ($("cfgHintBaseUrl") as HTMLInputElement).value.trim(), model: ($("cfgHintModel") as HTMLInputElement).value.trim(), timeoutMs: Number(($('cfgHintTimeout') as HTMLInputElement).value), batchSize: Number(($('cfgBatchSize') as HTMLInputElement).value) },
+    llm: { baseUrl: ($("cfgHintBaseUrl") as HTMLInputElement).value.trim(), routingMode: ($("cfgLlmRoutingMode") as HTMLSelectElement).value, preferredModel: ($("cfgPreferredModel") as HTMLInputElement).value.trim(), fallbackModels: ($("cfgFallbackModels") as HTMLInputElement).value.split(",").map((value) => value.trim()).filter(Boolean), fixedModel: ($("cfgFixedModel") as HTMLInputElement).value.trim(), timeoutMs: Number(($('cfgHintTimeout') as HTMLInputElement).value), batchSize: Number(($('cfgBatchSize') as HTMLInputElement).value) },
     observability: { debug: ($('cfgDebug') as HTMLInputElement).checked, storeRawEvents: ($('cfgStoreRaw') as HTMLInputElement).checked, eventBufferLimit: Number(($('cfgEventLimit') as HTMLInputElement).value) },
   };
   try {
@@ -256,9 +271,36 @@ async function resolveDictionary(): Promise<void> {
   try { $("dictionaryResult").textContent = JSON.stringify(await api(`/dictionary/resolve?text=${encodeURIComponent(text)}&language=${encodeURIComponent(language)}`), null, 2); } catch (error) { showError(error); }
 }
 
+async function uploadDictionary(): Promise<void> {
+  const input = $("dictionaryFile") as HTMLInputElement;
+  const file = input.files?.[0];
+  if (!file) { toast("请先选择 JSON 词库包", "info"); return; }
+  try {
+    const result = await api("/dictionaries/import", { method: "POST", body: JSON.stringify({ filename: file.name, packageType: ($("dictionaryPackageType") as HTMLSelectElement).value, content: await file.text() }) });
+    $("dictionaryPackageResult").textContent = JSON.stringify(result, null, 2);
+    toast("词库包已校验并保存", "success");
+    await refreshDictionaries();
+  } catch (error) { showError(error); }
+}
+
+async function saveSupplements(): Promise<void> {
+  const words = ($("supplementWords") as HTMLInputElement).value.split(/[,，\n]/).map((word) => word.trim()).filter(Boolean);
+  if (!words.length) { toast("请输入需要去重的补充词", "info"); return; }
+  try {
+    const result = await api("/dictionaries/supplements", { method: "POST", body: JSON.stringify({ language: ($("cfgGameLanguage") as HTMLSelectElement).value, words, sourceModel: latestGameSnapshot?.hintModel?.lastModelUsed ?? latestGameSnapshot?.hintModel?.model ?? "unknown" }) });
+    $("dictionaryPackageResult").textContent = JSON.stringify(result, null, 2);
+    ($("supplementWords") as HTMLInputElement).value = "";
+    toast(`已接收 ${result.accepted} 个新词，重复 ${result.duplicates} 个`, "success");
+    await refreshDictionaries();
+  } catch (error) { showError(error); }
+}
+
 $("adminConfigForm").addEventListener("submit", (event) => { event.preventDefault(); void saveConfig(); });
 $("reloadConfigButton").addEventListener("click", () => void refreshConfig());
 $("resolveDictionaryButton").addEventListener("click", () => void resolveDictionary());
+$("refreshDictionariesButton").addEventListener("click", () => void refreshDictionaries());
+$("uploadDictionaryButton").addEventListener("click", () => void uploadDictionary());
+$("saveSupplementsButton").addEventListener("click", () => void saveSupplements());
 $("refreshButton").addEventListener("click", () => void refreshAll());
 $("connectButton").addEventListener("click", async () => { try { const username = ($("username") as HTMLInputElement).value.trim(); await post("/connect", { username }); toast("TikTok 连接请求已发送", "success"); await refreshStatus(); } catch (error) { showError(error); } });
 $("disconnectButton").addEventListener("click", async () => { try { await post("/disconnect"); toast("已断开 TikTok 连接", "info"); await refreshStatus(); } catch (error) { showError(error); } });

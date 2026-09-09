@@ -24,6 +24,7 @@ import { ActionGateway } from "./websocket/ActionGateway.js";
 import { EventGateway } from "./websocket/EventGateway.js";
 import { SemanticGameGateway } from "./game/SemanticGameGateway.js";
 import { SemanticGameService } from "./game/SemanticGameService.js";
+import { DictionaryLibraryService, type DictionaryPackageType } from "./dictionary/DictionaryLibraryService.js";
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const webRoot = join(projectRoot, "web");
@@ -53,6 +54,7 @@ class InteractionLab implements LabController {
   private readonly semanticGateway: SemanticGameGateway;
   private readonly semanticGame!: SemanticGameService;
   private readonly adminConfig: AdminConfigService;
+  private readonly dictionaryLibrary: DictionaryLibraryService;
   private readonly statuses: Record<SourceKind, SourceStatus> = structuredClone(statusDefaults);
   private readonly counts: Record<string, number> = {};
   private readonly eventTimes: number[] = [];
@@ -65,6 +67,7 @@ class InteractionLab implements LabController {
     this.dataDir = resolve(process.env.DATA_DIR ?? join(projectRoot, "data"));
     this.adminConfig = new AdminConfigService(this.dataDir);
     this.adminConfig.loadSync();
+    this.dictionaryLibrary = new DictionaryLibraryService(this.dataDir, this.adminConfig.current.game.dictionaryPackageId);
     const debug = process.env.DEBUG === "true" || process.env.DEBUG === "1";
     this.normalizer = new Normalizer({
       debug,
@@ -76,7 +79,7 @@ class InteractionLab implements LabController {
     this.eventGateway = new EventGateway(logger, 1024 * 1024, () => this.recentEvents());
     this.actionGateway = new ActionGateway(logger);
     this.semanticGateway = new SemanticGameGateway(logger, () => this.semanticGame.snapshot());
-    this.semanticGame = new SemanticGameService(this.semanticGateway, this.adminConfig);
+    this.semanticGame = new SemanticGameService(this.semanticGateway, this.adminConfig, this.dictionaryLibrary.loadActive());
 
     this.bindSource(this.tiktok, "tiktok");
     this.bindSource(this.replay, "replay");
@@ -243,6 +246,18 @@ class InteractionLab implements LabController {
     return this.semanticGame.resolveDictionaryWord(text, language);
   }
 
+  async dictionaryLibraryView(): Promise<unknown> {
+    return this.dictionaryLibrary.view();
+  }
+
+  async importDictionaryPackage(input: { filename: string; packageType: DictionaryPackageType; content: string }): Promise<unknown> {
+    return this.dictionaryLibrary.importPackage(input);
+  }
+
+  async addDictionarySupplements(input: { language: string; words: string[]; sourceModel: string }): Promise<unknown> {
+    return this.dictionaryLibrary.addSupplements(input as Parameters<DictionaryLibraryService["addSupplements"]>[0]);
+  }
+
   attachWebSockets(wsServer: HttpServer): void {
     this.eventGateway.attach(wsServer);
     this.actionGateway.attach(wsServer);
@@ -318,7 +333,7 @@ async function main(): Promise<void> {
   const lab = new InteractionLab();
   await lab.init();
   const app = express();
-  app.use(express.json({ limit: "1mb" }));
+  app.use(express.json({ limit: "10mb" }));
   app.use("/api", createApiRouter(lab));
   app.use("/test-game-client", express.static(join(projectRoot, "tools", "test-game-client")));
   app.use("/test-word-game", express.static(join(projectRoot, "tools", "test-word-game")));

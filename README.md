@@ -16,7 +16,7 @@ npm run dev
 - `ws://127.0.0.1:8765/events`（同时兼容 `/ws/events`）
 - `ws://127.0.0.1:8765/actions`（同时兼容 `/ws/actions`）
 
-首页现在是统一的中文运营管理后台，左侧导航包含直播总览、实时事件、录制与回放、语义游戏和系统配置。TikTok 连接、自动重连、扩展礼物降级、事件审计、Embedding、hy3、词典和礼物倍率均可在后台查看或保存；密钥只显示是否已配置，不会通过 API 返回。后台配置写入 `DATA_DIR/admin-config.json`，该文件已加入 `.gitignore`。
+首页现在是统一的中文运营管理后台，左侧导航包含直播总览、实时事件、录制与回放、语义游戏和系统配置。TikTok 连接、自动重连、扩展礼物降级、事件审计、Embedding、模型路由、词库和礼物倍率均可在后台查看或保存；密钥只显示是否已配置，不会通过 API 返回。后台配置写入 `DATA_DIR/admin-config.json`，该文件已加入 `.gitignore`。
 
 后台配置接口：
 
@@ -25,11 +25,14 @@ GET   /api/admin/config
 PATCH /api/admin/config
 GET   /api/events/recent?limit=1000
 POST  /api/events/clear
+GET   /api/dictionaries
+POST  /api/dictionaries/import
+POST  /api/dictionaries/supplements
 ```
 
 语言、模型路由、调试原始事件和计时广播间隔等配置保存后会明确返回“已生效 / 需重新连接 / 需要重启”，不会让运营误以为配置已经作用于当前连接。事件缓存由服务端维护，后台重连后会恢复最近事件；“清空当前事件”会同时清空服务端缓存，而不是只清浏览器列表。
 
-打开 <http://127.0.0.1:3000/test-word-game/> 可运行“海外直播语义猜词”Overlay。它订阅独立的 `ws://127.0.0.1:8765/word-game`：观众发送英文词语后，服务端校验输入、计算语义关联度并返回排名；点赞可解锁提示并随机提交 1 个本地候选词，礼物按礼物价值 × 10 提交候选词，礼物候选词严格由 OpenAI 兼容的 `hy3` 模型结合当前提示生成，hy3 失败时会重试并报告，不再静默混入本地词库。关注/分享会显示直播动态，答案只保留在服务端，客户端只收到 HMAC 答案码。每轮结束后按猜中、相似度和最佳助攻结算积分。
+打开 <http://127.0.0.1:3000/test-word-game/> 可运行中文“海外直播语义猜词”Overlay。观众发送中文词语后，服务端校验输入、计算语义关联度并返回排名；点赞可解锁提示并随机提交 1 个本地候选词，礼物按礼物价值 × 10 提交候选词。礼物候选词通过 OpenAI 兼容模型路由生成：可以固定任意模型，也可以按“首选模型 → 兜底模型列表”顺序尝试，默认首选 `hy3`，但不限制只能使用 hy3。模型失败时会重试并报告，不再静默混入本地词库。关注/分享会显示直播动态，答案只保留在服务端，客户端只收到 HMAC 答案码。每轮结束后按猜中、相似度和最佳助攻结算积分。
 
 ### 多语言概念词典
 
@@ -41,9 +44,38 @@ GET /api/dictionary/resolve?text=游艇
 GET /api/dictionary/resolve?text=du%20thuy%E1%BB%81n&language=vi
 ```
 
-通过 `SEMANTIC_LANGUAGE=en|vi|zh-Hans` 切换游戏语言；房间快照会返回当前 `wordlistId` 和词典统计。切换语言时，答案池和随机候选词从对应语言的已审核标签读取；概念相同的跨语言猜测会归并到同一个概念。
+通过 `SEMANTIC_LANGUAGE=en|vi|zh-Hans` 切换游戏语言；默认使用 `zh-Hans`。房间快照会返回当前 `wordlistId` 和词典统计。中文阶段提示按轮次逐步给出方向、开头和长度，例如答案“苹果”会给出“水果的一种”。切换语言时，答案池和随机候选词从对应语言的已审核标签读取；概念相同的跨语言猜测会归并到同一个概念。
 
-词典缺失项只允许离线补齐。配置运行时的 `HINT_LLM_API_KEY` 后，可以按不超过 100 个概念一批调用 `hy3` 生成 `pending` 提案，输出到本地审核文件，不会自动写入已发布词典：
+### 词库包格式与 AI 补充
+
+后台支持上传两类 JSON 包：`wordlist`（词库）和 `question-bank`（题目库）。最简单的包就是一个 `DictionarySnapshot`：
+
+```json
+{
+  "schemaVersion": 1,
+  "wordlistId": "zh_core_v1",
+  "release": "2026-09-09",
+  "defaultLanguage": "zh-Hans",
+  "languages": ["zh-Hans"],
+  "concepts": [
+    {
+      "conceptId": "nature.apple",
+      "senseKey": "fruit_apple",
+      "category": "nature",
+      "definitions": { "zh-Hans": "水果的一种" },
+      "labels": { "zh-Hans": "苹果" },
+      "isAnswerable": true,
+      "isGuessable": true,
+      "status": "approved",
+      "aliases": []
+    }
+  ]
+}
+```
+
+也可以使用 `{ "packageType": "wordlist", "snapshot": { ... } }` 包装格式。后台会显示词库数量、题目库数量、概念数、语言和当前激活版本。上传包会先独立保存并校验，选择为当前词库后通过配置返回“需要重启”，不会在直播进行中热切换答案池。AI 产出的词通过“去重补充”进入 `DATA_DIR/dictionary-library/supplements.jsonl` 待审核库：已存在正式词库或补充库的词不会重复写入。
+
+词典缺失项只允许离线补齐。配置运行时的 `HINT_LLM_API_KEY` 后，可以按不超过 100 个概念一批调用首选模型和兜底模型生成 `pending` 提案，输出到本地审核文件，不会自动写入已发布词典：
 
 ```bash
 npm run dictionary:gap-fill -- --language=vi
@@ -53,7 +85,7 @@ npm run dictionary:gap-fill -- --language=vi
 
 Embedding 默认连接本机 OpenAI 兼容服务：`EMBEDDING_BASE_URL=http://127.0.0.1:1234/v1`、`EMBEDDING_MODEL=text-embedding-qwen3-embedding-0.6b`。也可以通过环境变量替换地址、模型和可选的 `EMBEDDING_API_KEY`；请求失败时自动回退到本地规则。
 
-礼物候选词模型可通过 `HINT_LLM_BASE_URL`、`HINT_LLM_MODEL`、`HINT_LLM_API_KEY` 和 `HINT_LLM_TIMEOUT_MS` 配置；默认模型为 `hy3`，默认地址为 `https://www.ai68.asia/v1`。模型必须返回 `{\"schemaVersion\":1,\"items\":[{\"word\":\"...\"}]}`，服务端会再次过滤、去重并排除隐藏答案，密钥只应通过运行时环境变量注入。
+礼物候选词模型可通过 `HINT_LLM_BASE_URL`、`HINT_LLM_MODEL`、`HINT_LLM_FALLBACK_MODELS`、`HINT_LLM_FIXED_MODEL`、`HINT_LLM_API_KEY` 和 `HINT_LLM_TIMEOUT_MS` 配置；默认首选模型为 `hy3`，默认兜底为 `minimax-m3,deepseek-v4-flash`，默认地址为 `https://www.ai68.asia/v1`。模型必须返回 `{\"schemaVersion\":1,\"items\":[{\"word\":\"...\"}]}`，服务端会再次过滤、去重并排除隐藏答案，密钥只应通过运行时环境变量注入。
 
 压测时可通过 `SEMANTIC_ANSWER=yacht` 固定本轮隐藏答案；服务端只返回答案长度和 HMAC 答案码，不会把答案发送给 Overlay。
 

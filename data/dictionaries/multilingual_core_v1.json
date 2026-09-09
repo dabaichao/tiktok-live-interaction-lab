@@ -8,7 +8,7 @@
     { "sourceId": "local_seed_manual", "license": "project-authored-seed", "retrievedAt": "2026-09-09" }
   ],
   "concepts": [
-    { "conceptId": "nature.apple", "senseKey": "fruit_apple", "category": "nature", "labels": { "en": "apple", "vi": "quả táo", "zh-Hans": "苹果" } },
+    { "conceptId": "nature.apple", "senseKey": "fruit_apple", "category": "nature", "definitions": { "zh-Hans": "水果的一种", "en": "a kind of fruit", "vi": "một loại trái cây" }, "labels": { "en": "apple", "vi": "quả táo", "zh-Hans": "苹果" } },
     { "conceptId": "nature.flower", "senseKey": "flower", "category": "nature", "labels": { "en": "flower", "vi": "hoa", "zh-Hans": "花" } },
     { "conceptId": "nature.forest", "senseKey": "forest", "category": "nature", "labels": { "en": "forest", "vi": "rừng", "zh-Hans": "森林" } },
     { "conceptId": "nature.mountain", "senseKey": "mountain", "category": "nature", "labels": { "en": "mountain", "vi": "núi", "zh-Hans": "山" } },

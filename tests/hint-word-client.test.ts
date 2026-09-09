@@ -40,4 +40,16 @@ describe("HintWordClient", () => {
     await expect(client.generateWords({ count: 1, hints: [] })).resolves.toEqual(["yacht"]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("falls back to the next configured model when the preferred model fails", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "preferred unavailable" } }), { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: { message: "preferred unavailable" } }), { status: 503 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ choices: [{ message: { content: '{"schemaVersion":1,"items":[{"word":"香蕉"}]}' } }] }), { status: 200 }));
+    const client = new HintWordClient({ baseUrl: "https://example.test/v1", routingMode: "preferred-fallback", preferredModel: "hy3", fallbackModels: ["minimax-m3"], fixedModel: "hy3", apiKey: "test-key", timeoutMs: 1000 });
+
+    await expect(client.generateWords({ count: 1, language: "zh-Hans", hints: [] })).resolves.toEqual(["香蕉"]);
+    expect(fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)).model)).toEqual(["hy3", "hy3", "minimax-m3"]);
+    expect(client.status()).toMatchObject({ lastModelUsed: "minimax-m3", models: ["hy3", "minimax-m3"] });
+  });
 });

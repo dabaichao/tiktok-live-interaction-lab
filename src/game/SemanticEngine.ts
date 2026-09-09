@@ -40,6 +40,20 @@ const CATEGORY_THEMES: Record<string, string> = {
   household_items: "日用品",
 };
 
+const CATEGORY_HINTS_ZH: Record<string, string> = {
+  nature: "自然界或生物的一种",
+  people: "人物或关系的一种",
+  travel: "出行或交通的一种",
+  emotion: "一种情绪或状态",
+  time: "时间或季节的一种",
+  culture: "文化或娱乐的一种",
+  work: "工作或成长相关的一种",
+  food: "食物或味觉相关的一种",
+  technology: "科技或互联网相关的一种",
+  sports: "运动或竞技相关的一种",
+  household_items: "日常用品的一种",
+};
+
 export class SemanticEngine {
   readonly dictionary: ConceptDictionary;
   readonly language: DictionaryLanguage;
@@ -76,6 +90,17 @@ export class SemanticEngine {
   themeFor(answer: string): string {
     const category = this.dictionary.categoryFor(answer, this.language);
     return CATEGORY_THEMES[category ?? ""] ?? "日常高频词";
+  }
+
+  hintFor(answer: string): string {
+    const result = this.resolve(answer);
+    if (result.status === "resolved") {
+      const definition = result.concept.definitions[this.language] ?? result.concept.definitions["zh-Hans"];
+      if (definition) return definition;
+      if (this.language === "zh-Hans") return CATEGORY_HINTS_ZH[result.concept.category] ?? "生活中常见的一种事物";
+      return CATEGORY_THEMES[result.concept.category] ?? "常见词汇的一种";
+    }
+    return this.language === "zh-Hans" ? "生活中常见的一种事物" : "常见词汇的一种";
   }
 
   normalize(input: string): string {
@@ -165,4 +190,3 @@ function cosine(a: number[], b: number[]): number {
   if (normA === 0 || normB === 0) throw new Error("Embedding vector has zero magnitude");
   return dot / (Math.sqrt(normA) * Math.sqrt(normB));
 }
-

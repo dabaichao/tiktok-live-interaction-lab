@@ -11,6 +11,9 @@ export interface LabController {
   clearRecentEvents(): Promise<unknown>;
   dictionaryStatus(): unknown;
   resolveDictionaryWord(text: string, language?: string): unknown;
+  dictionaryLibraryView(): Promise<unknown>;
+  importDictionaryPackage(input: { filename: string; packageType: "wordlist" | "question-bank"; content: string }): Promise<unknown>;
+  addDictionarySupplements(input: { language: string; words: string[]; sourceModel: string }): Promise<unknown>;
   connect(username: string): Promise<unknown>;
   disconnect(): Promise<unknown>;
   startRecording(): Promise<unknown>;
@@ -51,6 +54,8 @@ const simulateSchema = z.object({
   totalLikes: z.number().nonnegative().optional(),
 });
 const recentEventsSchema = z.object({ limit: z.coerce.number().int().min(1).max(10_000).default(1_000) });
+const dictionaryImportSchema = z.object({ filename: z.string().min(1).max(240), packageType: z.enum(["wordlist", "question-bank"]), content: z.string().min(2).max(10_000_000) });
+const dictionarySupplementSchema = z.object({ language: z.string().min(2).max(40), words: z.array(z.string().min(1).max(160)).min(1).max(10_000), sourceModel: z.string().max(200).default("unknown") });
 
 export function createApiRouter(controller: LabController): Router {
   const router = Router();
@@ -69,6 +74,17 @@ export function createApiRouter(controller: LabController): Router {
     res.json({ ok: true, data: await controller.clearRecentEvents() });
   }));
   router.get("/dictionary/status", (_req, res) => res.json({ ok: true, data: controller.dictionaryStatus() }));
+  router.get("/dictionaries", asyncHandler(async (_req, res) => {
+    res.json({ ok: true, data: await controller.dictionaryLibraryView() });
+  }));
+  router.post("/dictionaries/import", asyncHandler(async (req, res) => {
+    const input = dictionaryImportSchema.parse(req.body);
+    res.json({ ok: true, data: await controller.importDictionaryPackage(input) });
+  }));
+  router.post("/dictionaries/supplements", asyncHandler(async (req, res) => {
+    const input = dictionarySupplementSchema.parse(req.body);
+    res.json({ ok: true, data: await controller.addDictionarySupplements(input) });
+  }));
   router.get("/dictionary/resolve", (req, res) => {
     const text = typeof req.query.text === "string" ? req.query.text.trim() : "";
     if (!text) throw new ApiError("DICTIONARY_TEXT_REQUIRED", "Query parameter text is required");

@@ -1,6 +1,10 @@
 export interface HintWordClientOptions {
   baseUrl?: string;
   model?: string;
+  routingMode?: "preferred-fallback" | "fixed";
+  preferredModel?: string;
+  fallbackModels?: string[];
+  fixedModel?: string;
   apiKey?: string;
   timeoutMs?: number;
 }
@@ -14,6 +18,9 @@ export interface HintWordStatus {
   configured: boolean;
   baseUrl: string;
   model: string;
+  routingMode: "preferred-fallback" | "fixed";
+  models: string[];
+  lastModelUsed?: string;
   timeoutMs: number;
   lastError?: string;
 }
@@ -30,14 +37,22 @@ type ChatResponse = {
  */
 export class HintWordClient {
   private readonly baseUrl: string;
-  private readonly model: string;
+  private readonly routingMode: "preferred-fallback" | "fixed";
+  private readonly preferredModel: string;
+  private readonly fallbackModels: string[];
+  private readonly fixedModel: string;
   private readonly apiKey?: string;
   private readonly timeoutMs: number;
   private lastError?: string;
+  private lastModelUsed?: string;
 
   constructor(options: HintWordClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? process.env.HINT_LLM_BASE_URL ?? "https://www.ai68.asia/v1").replace(/\/$/, "");
-    this.model = options.model ?? process.env.HINT_LLM_MODEL ?? "hy3";
+    const legacySingleModel = options.model !== undefined && options.routingMode === undefined && options.preferredModel === undefined && options.fallbackModels === undefined && options.fixedModel === undefined;
+    this.routingMode = options.routingMode ?? (legacySingleModel ? "fixed" : "preferred-fallback");
+    this.preferredModel = options.preferredModel ?? options.model ?? process.env.HINT_LLM_MODEL ?? "hy3";
+    this.fallbackModels = uniqueModels(options.fallbackModels ?? (legacySingleModel ? [] : (process.env.HINT_LLM_FALLBACK_MODELS ?? "minimax-m3,deepseek-v4-flash").split(",")));
+    this.fixedModel = options.fixedModel ?? process.env.HINT_LLM_FIXED_MODEL ?? this.preferredModel;
     this.apiKey = options.apiKey ?? process.env.HINT_LLM_API_KEY;
     this.timeoutMs = options.timeoutMs ?? Number(process.env.HINT_LLM_TIMEOUT_MS ?? 45_000);
   }
@@ -46,7 +61,10 @@ export class HintWordClient {
     return {
       configured: Boolean(this.apiKey),
       baseUrl: this.baseUrl,
-      model: this.model,
+      model: this.models()[0],
+      routingMode: this.routingMode,
+      models: this.models(),
+      lastModelUsed: this.lastModelUsed,
       timeoutMs: this.timeoutMs,
       lastError: this.lastError,
     };
@@ -58,9 +76,30 @@ export class HintWordClient {
     const language = input.language ?? "en";
     const excluded = new Set((input.excludeWords ?? []).map((word) => this.normalizeWord(word)).filter(Boolean));
     let lastError = "Hint LLM returned no valid words";
-    // A transient provider-format issue should not immediately turn a gift
-    // batch into local words. Retry the same hy3 request once, with an even
-    // stricter compact-JSON instruction.
+    const output: string[] = [];
+    const excludedForRequest = new Set(excluded);
+    for (const model of this.models()) {
+      const remaining = count - output.length;
+      if (remaining <= 0) break;
+      const words = await this.requestWords(model, { ...input, count: remaining }, excludedForRequest, (error) => { lastError = error; });
+      for (const word of words) {
+        if (output.includes(word)) continue;
+        output.push(word);
+        excludedForRequest.add(word);
+        if (output.length >= count) break;
+      }
+    }
+    if (output.length > 0) {
+      this.lastError = undefined;
+      return output.slice(0, count);
+    }
+    this.lastError = lastError;
+    return [];
+  }
+
+  private async requestWords(model: string, input: { count: number; hints: HintContext[]; phase?: string; language?: string; excludeWords?: string[] }, excluded: Set<string>, onError: (message: string) => void): Promise<string[]> {
+    const count = input.count;
+    const language = input.language ?? "en";
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
@@ -69,7 +108,7 @@ export class HintWordClient {
           method: "POST",
           headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
           body: JSON.stringify({
-            model: this.model,
+            model,
             temperature: 0.2,
             max_tokens: Math.min(8_000, Math.max(1_200, count * 16)),
             response_format: { type: "json_object" },
@@ -100,16 +139,19 @@ export class HintWordClient {
         const content = body.choices?.[0]?.message?.content ?? body.choices?.[0]?.text;
         const words = this.parseWords(content, excluded);
         if (words.length === 0) throw new Error("Hint LLM returned no valid words");
-        this.lastError = undefined;
+        this.lastModelUsed = model;
         return words.slice(0, count);
       } catch (error) {
-        lastError = error instanceof Error ? error.message : String(error);
-        this.lastError = lastError;
+        onError(error instanceof Error ? `${model}: ${error.message}` : `${model}: ${String(error)}`);
       } finally {
         clearTimeout(timeout);
       }
     }
     return [];
+  }
+
+  private models(): string[] {
+    return this.routingMode === "fixed" ? uniqueModels([this.fixedModel]) : uniqueModels([this.preferredModel, ...this.fallbackModels]);
   }
 
   private parseWords(content: unknown, excluded = new Set<string>()): string[] {
@@ -172,4 +214,8 @@ export class HintWordClient {
   private normalizeWord(word: string): string {
     return word.trim().toLowerCase().replace(/\s+/g, " ");
   }
+}
+
+function uniqueModels(models: string[]): string[] {
+  return [...new Set(models.map((model) => model.trim()).filter(Boolean))];
 }
