@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-web/
+.env
+data/sessions/
+data/dictionary-proposals/
+coverage/
+.docx-review/
+*.log

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TikTok LIVE 双屏测试</title>
+    <style>
+      :root { color-scheme: dark; font-family: system-ui, sans-serif; background: #070c18; color: #e9effa; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 860px; height: 100vh; overflow: hidden; background: #070c18; }
+      .split { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(440px, .92fr); gap: 8px; height: 100vh; padding: 8px; }
+      .pane { display: grid; grid-template-rows: 36px minmax(0, 1fr); min-width: 0; overflow: hidden; border: 1px solid #243454; border-radius: 12px; background: #0e1629; }
+      .pane-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 12px; border-bottom: 1px solid #243454; color: #dce5f6; font-size: 12px; font-weight: 800; }
+      .pane-bar span { color: #7f91b1; font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }
+      iframe { width: 100%; height: 100%; border: 0; background: #0b1020; }
+      @media (max-width: 1050px) { body { min-width: 0; overflow: auto; }.split { grid-template-columns: 1fr; grid-template-rows: minmax(620px, 1fr) minmax(620px, 1fr); height: auto; min-height: 100vh; }.pane { min-height: 620px; } }
+    </style>
+  </head>
+  <body>
+    <main class="split">
+      <section class="pane"><div class="pane-bar"><strong>控制台 / 连接 TikTok</strong><span>输入直播用户名并点击连接</span></div><iframe src="/" title="TikTok LIVE 控制台"></iframe></section>
+      <section class="pane"><div class="pane-bar"><strong>联动游戏 / 语义猜词</strong><span>订阅 /word-game</span></div><iframe src="/test-word-game/" title="直播语义猜词游戏"></iframe></section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,104 @@
+{
+  "rules": [
+    {
+      "when": {
+        "type": "chat",
+        "commandText": "attack"
+      },
+      "emit": {
+        "action": "CHAT_ATTACK",
+        "power": 25,
+        "args": {
+          "command": "attack"
+        }
+      }
+    },
+    {
+      "when": {
+        "type": "chat",
+        "commandText": "heal"
+      },
+      "emit": {
+        "action": "CHAT_HEAL",
+        "power": 20,
+        "args": {
+          "command": "heal"
+        }
+      }
+    },
+    {
+      "when": {
+        "type": "chat",
+        "commandText": "shield"
+      },
+      "emit": {
+        "action": "CHAT_SHIELD",
+        "power": 15,
+        "args": {
+          "command": "shield"
+        }
+      }
+    },
+    {
+      "when": {
+        "type": "gift"
+      },
+      "emit": {
+        "action": "GIFT_ULTIMATE",
+        "power": 80
+      }
+    },
+    {
+      "when": {
+        "type": "like"
+      },
+      "emit": {
+        "action": "LIKE_PULSE",
+        "power": 1
+      }
+    },
+    {
+      "when": {
+        "type": "join"
+      },
+      "emit": {
+        "action": "JOIN_REINFORCEMENT",
+        "power": 1
+      }
+    },
+    {
+      "when": {
+        "type": "follow"
+      },
+      "emit": {
+        "action": "FOLLOW_SHIELD",
+        "power": 15
+      }
+    },
+    {
+      "when": {
+        "type": "share"
+      },
+      "emit": {
+        "action": "SHARE_BOOST",
+        "power": 30
+      }
+    },
+    {
+      "when": {
+        "type": "room_stats"
+      },
+      "emit": {
+        "action": "ROOM_STATUS"
+      }
+    },
+    {
+      "when": {
+        "type": "stream_end"
+      },
+      "emit": {
+        "action": "STREAM_ENDED"
+      }
+    }
+  ]
+}

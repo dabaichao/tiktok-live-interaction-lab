@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>直播守城 · Boss 远征</title>
+    <style>
+      :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #eef3ff; background: #080d1b; --boss-accent: #ba63ef; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 320px; background: radial-gradient(circle at 15% 0%, #27356e 0, transparent 34rem), #080d1b; }
+      button { font: inherit; cursor: pointer; }
+      .shell { width: min(1180px, calc(100vw - 32px)); margin: 0 auto; padding: 28px 0 54px; }
+      .topbar { display: flex; justify-content: space-between; align-items: flex-end; gap: 18px; margin-bottom: 18px; }
+      .eyebrow, .label { color: #8391b1; font: 10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; letter-spacing: .14em; text-transform: uppercase; }
+      h1, h2, h3, p { margin: 0; } h1 { margin-top: 7px; font-size: clamp(24px, 5vw, 42px); letter-spacing: -.06em; } h2 { font-size: 16px; } h3 { font-size: 12px; color: #a6b4ce; }
+      .subtitle { max-width: 670px; margin-top: 9px; color: #a0aec7; font-size: 13px; line-height: 1.7; }
+      .toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }.status, .rate, .reset { border: 1px solid #2a3a61; border-radius: 999px; padding: 8px 11px; color: #9baacf; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }.status.connected { border-color: #236553; color: #6ef0ba; }.status.error { border-color: #71384e; color: #ff9eb7; }.reset { color: #d4dcf0; background: #151e39; }
+      .panel { border: 1px solid #203052; border-radius: 16px; background: rgba(15, 24, 48, .92); box-shadow: 0 20px 70px rgba(0,0,0,.2); }.arena { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(295px, .85fr); gap: 15px; }.boss-card { position: relative; min-height: 370px; padding: 25px; overflow: hidden; background: linear-gradient(145deg, #1a2450, #10182f 60%, #17142f); }.boss-card::after { content: ''; position: absolute; width: 350px; height: 350px; right: -100px; top: -140px; border-radius: 50%; background: color-mix(in srgb, var(--boss-accent) 28%, transparent); filter: blur(20px); }.boss-head, .meter-head, .feed-head, .reward-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; }.boss-title { position: relative; z-index: 1; margin-top: 33px; font-size: clamp(28px, 5vw, 58px); font-weight: 900; letter-spacing: -.08em; }.boss-copy { position: relative; z-index: 1; max-width: 510px; margin-top: 7px; color: #a5b2cd; font-size: 13px; }.boss-level { position: relative; z-index: 1; display: inline-flex; gap: 8px; margin-top: 18px; padding: 7px 10px; border: 1px solid #3f4d80; border-radius: 999px; color: #dbe2ff; background: #242e5a; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }.boss-visual { position: absolute; right: 11%; bottom: 45px; z-index: 0; width: 145px; height: 145px; border: 2px solid color-mix(in srgb, var(--boss-accent) 80%, white); border-radius: 37% 63% 48% 52%; background: radial-gradient(circle at 35% 28%, #f5b5ff, var(--boss-accent) 38%, #281c52 75%); box-shadow: 0 0 48px color-mix(in srgb, var(--boss-accent) 65%, transparent), inset -18px -14px 28px #170e38; transform: rotate(18deg); animation: float 3.5s ease-in-out infinite; }.boss-visual::before, .boss-visual::after { content: ''; position: absolute; width: 20px; height: 30px; top: 41px; border-radius: 50%; background: #180f32; box-shadow: 0 0 0 5px #f6b8ff66; }.boss-visual::before { left: 36px; }.boss-visual::after { right: 36px; } @keyframes float { 50% { transform: translateY(-8px) rotate(23deg); } }
+      .bar { position: relative; z-index: 1; height: 17px; margin-top: 28px; overflow: hidden; border: 1px solid #3b3564; border-radius: 999px; background: #0a1024; }.fill { height: 100%; width: 100%; border-radius: inherit; background: linear-gradient(90deg, #ff648f, #ffb35e); transition: width .18s ease; }.boss-foot { position: relative; z-index: 1; display: flex; justify-content: space-between; margin-top: 9px; color: #c2cce0; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }.last-hit { position: relative; z-index: 1; min-height: 20px; margin-top: 15px; color: #ffd9e4; font-size: 12px; }
+      .meters { display: grid; gap: 12px; }.meter-panel { padding: 17px; }.meter { height: 9px; margin-top: 10px; overflow: hidden; border-radius: 999px; background: #0a1227; }.meter > div { height: 100%; border-radius: inherit; transition: width .18s ease; }.hp-fill { background: linear-gradient(90deg, #4ee0a7, #b6ed72); }.energy-fill { background: linear-gradient(90deg, #5b9cff, #c17bff); }.shield-fill { background: linear-gradient(90deg, #55d8e7, #6d8dff); }.meter-value { color: #dfe7f7; font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }.meter-note { margin-top: 8px; color: #8998b5; font-size: 11px; line-height: 1.5; }.ultimate-ready { color: #ffeaa6; }
+      .grid { display: grid; grid-template-columns: .82fr 1.18fr; gap: 15px; margin-top: 15px; }.panel-body { padding: 19px; }.guide p { margin-top: 11px; color: #9ba9c3; font-size: 12px; line-height: 1.7; }.commands { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }.command { padding: 7px 9px; border: 1px solid #344875; border-radius: 8px; color: #d6def3; background: #182445; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; }.mapping { display: grid; gap: 8px; margin-top: 17px; }.mapping div { display: flex; justify-content: space-between; gap: 12px; color: #9caac3; font-size: 11px; }.mapping b { color: #ebf0fc; }.mapping span { color: #91a3ff; text-align: right; }.reward-list { display: grid; gap: 7px; max-height: 180px; margin-top: 13px; overflow: auto; }.reward { padding: 9px 10px; border: 1px solid #594a84; border-radius: 9px; color: #e8dcff; background: #221b3d; font-size: 11px; }.reward.legendary { border-color: #c88a39; color: #ffe5a7; background: linear-gradient(120deg, #4a2d20, #2e203d); }
+      .feed { min-height: 260px; }.feed-list { display: grid; gap: 7px; max-height: 245px; margin-top: 13px; overflow: auto; }.feed-row { display: grid; grid-template-columns: 30px 65px minmax(76px, 1fr) minmax(120px, 1.5fr); gap: 8px; align-items: center; padding: 8px 9px; border: 1px solid #203052; border-radius: 9px; background: #101a34; font-size: 11px; }.feed-avatar, .impact-avatar { width: 24px; height: 24px; overflow: hidden; border: 1px solid #53689c; border-radius: 50%; background: #26355c; object-fit: cover; }.feed-time { color: #687b9f; font: 10px ui-monospace, SFMono-Regular, Consolas, monospace; }.feed-action { color: #b8c2ff; font-weight: 800; }.feed-actor { overflow: hidden; color: #edf2ff; text-overflow: ellipsis; white-space: nowrap; }.feed-result { overflow: hidden; color: #f5c6d4; text-overflow: ellipsis; white-space: nowrap; }.empty { display: grid; min-height: 130px; place-items: center; color: #67789b; font-size: 12px; }
+      .footer-stats { display: flex; flex-wrap: wrap; gap: 9px 20px; margin-top: 14px; padding: 14px 2px 0; border-top: 1px solid #203052; color: #8796b2; font-size: 11px; }.footer-stats b { color: #e8eefc; font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+      .effect-layer { position: fixed; right: 20px; bottom: 24px; z-index: 10; display: grid; justify-items: end; gap: 10px; pointer-events: none; }.impact { display: grid; grid-template-columns: 42px minmax(210px, 300px) auto; gap: 10px; align-items: center; padding: 12px 14px 12px 10px; border: 1px solid #5274cb; border-radius: 14px; background: linear-gradient(110deg, #17264d, #291e4d); box-shadow: 0 12px 38px #0008; animation: impact-in 2.3s ease both; }.impact-avatar { width: 38px; height: 38px; border-color: #8db0ff; }.impact-copy { min-width: 0; }.impact-copy strong, .impact-copy span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.impact-copy strong { color: #fff; font-size: 13px; }.impact-copy span { margin-top: 3px; color: #aebee0; font-size: 11px; }.impact-damage { color: #ffd17a; font: 800 20px ui-monospace, SFMono-Regular, Consolas, monospace; white-space: nowrap; }.impact.ultimate { border-color: #dc76ff; background: linear-gradient(110deg, #38205e, #5b234d); box-shadow: 0 0 28px #c94cff88, 0 12px 42px #0009; animation: ultimate-in 2.8s ease both; }.impact.legendary { border-color: #ffd66d; background: linear-gradient(110deg, #5a3218, #3f1f4f); box-shadow: 0 0 45px #ffb52d99, 0 12px 48px #0009; animation: legendary-in 4s ease both; }.impact.legendary .impact-damage { color: #ffe49d; }.impact.rare-copy { color: #ffe09a !important; } @keyframes impact-in { 0% { opacity: 0; transform: translateX(35px) scale(.9); } 12%, 78% { opacity: 1; transform: translateX(0) scale(1); } 100% { opacity: 0; transform: translateX(12px) scale(.96); } } @keyframes ultimate-in { 0% { opacity: 0; transform: scale(.55) rotate(-3deg); } 14%, 78% { opacity: 1; transform: scale(1.03) rotate(0); } 100% { opacity: 0; transform: scale(1.08); } } @keyframes legendary-in { 0% { opacity: 0; transform: scale(.45); filter: brightness(2); } 15%, 75% { opacity: 1; transform: scale(1.07); filter: brightness(1); } 100% { opacity: 0; transform: scale(1.12); } }
+      @media (max-width: 780px) { .shell { width: min(100% - 20px, 620px); padding-top: 18px; }.topbar { display: block; }.toolbar { justify-content: flex-start; margin-top: 14px; }.arena, .grid { grid-template-columns: 1fr; }.boss-card { min-height: 340px; }.boss-visual { right: 7%; width: 115px; height: 115px; }.effect-layer { right: 8px; bottom: 8px; }.impact { grid-template-columns: 34px minmax(150px, 1fr) auto; max-width: calc(100vw - 16px); }.impact-avatar { width: 30px; height: 30px; } }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">/actions · 高人气压测客户端</p>
+          <h1>直播守城 · Boss 远征</h1>
+          <p class="subtitle">免费互动负责积累优势，礼物和满能量负责爆发。每一关 Boss 都会变强，并发互动会自动衰减小额伤害，避免单一高频操作直接打穿关卡。</p>
+        </div>
+        <div class="toolbar"><span id="status" class="status">动作流连接中</span><span id="rate" class="rate">0 动作/秒</span><button id="reset" class="reset">重置远征</button></div>
+      </header>
+
+      <section class="arena">
+        <div class="panel boss-card">
+          <div class="boss-head"><span class="label">当前目标</span><span id="lastAction" class="label">等待直播互动</span></div>
+          <div id="bossTitle" class="boss-title">霜铠巨像</div>
+          <p id="bossCopy" class="boss-copy">第一关守门者，正在等待直播间集结。</p>
+          <div class="boss-level"><span>远征关卡</span><strong id="bossLevel">1</strong><span>·</span><span id="bossRewardHint">通关奖励：新手补给箱</span><span>·</span><span id="bossTimer">Boss 反击倒计时 10s</span></div>
+          <div class="boss-visual"></div>
+          <div class="bar"><div id="bossBar" class="fill"></div></div>
+          <div class="boss-foot"><span>Boss HP</span><strong id="bossHp">50,000 / 50,000</strong></div>
+          <div id="lastHit" class="last-hit">还没有攻击记录</div>
+        </div>
+        <div class="meters">
+          <div class="panel meter-panel"><div class="meter-head"><span class="label">基地生命</span><span id="baseHp" class="meter-value">100 / 100</span></div><div class="meter"><div id="hpBar" class="hp-fill" style="width:100%"></div></div><p id="baseNote" class="meter-note">Boss 每 10 秒反击；护盾会优先吸收伤害。</p></div>
+          <div class="panel meter-panel"><div class="meter-head"><span class="label">联动能量</span><span id="energy" class="meter-value">0 / 100</span></div><div class="meter"><div id="energyBar" class="energy-fill" style="width:0%"></div></div><p id="energyNote" class="meter-note">点赞、分享和免费互动会充能；满能量大招有 12 秒冷却。</p></div>
+          <div class="panel meter-panel"><div class="meter-head"><span class="label">护盾</span><span id="shield" class="meter-value">0</span></div><div class="meter"><div id="shieldBar" class="shield-fill" style="width:0%"></div></div><p id="ultimateNote" class="meter-note">礼物可触发礼物大招，冷却期间转为普通礼物冲击。</p></div>
+        </div>
+      </section>
+
+      <div class="grid">
+        <section class="panel panel-body guide">
+          <div class="label">免费互动</div><h2 style="margin-top:7px">观众怎么玩</h2>
+          <p>关注、点赞、分享不会直接替代付费爆发，而是分别提供护盾、能量和增幅，让所有观众都有参与感。</p>
+          <div class="commands"><span class="command">attack → 小额伤害</span><span class="command">heal → 基地回血</span><span class="command">shield → 护盾</span></div>
+          <div class="mapping"><div><b>点赞</b><span>小额伤害 + 联动能量</span></div><div><b>关注</b><span>护盾 + 能量</span></div><div><b>分享</b><span>短时伤害增幅 + 能量</span></div><div><b>进场</b><span>援军计数 + 微量能量</span></div><div><b>礼物</b><span>大招 / 冷却期普通冲击</span></div></div>
+        </section>
+        <section class="panel panel-body feed"><div class="feed-head"><div><div class="label">战斗记录</div><h2 style="margin-top:7px">最近联动</h2></div><span id="combo" class="label">连击 ×0</span></div><div id="feed" class="feed-list"><div class="empty">等待第一条动作…</div></div></section>
+        <section class="panel panel-body"><div class="reward-head"><div><div class="label">远征奖励</div><h2 style="margin-top:7px">奖励与装备</h2></div><span id="equipmentCount" class="label">装备 0</span></div><div id="rewardList" class="reward-list"><div class="empty">击破 Boss 后获得奖励</div></div></section>
+      </div>
+
+      <div class="footer-stats"><span>得分 <b id="score">0</b></span><span>援军 <b id="audience">0</b></span><span>累计点赞 <b id="likes">0</b></span><span>已处理动作 <b id="processed">0</b></span><span>保护性丢弃 <b id="dropped">0</b></span></div>
+    </main>
+    <div id="effectLayer" class="effect-layer"></div>
+    <script>
+      const BOSS_BOOK = [
+        { name: '霜铠巨像', copy: '第一关守门者，正在等待直播间集结。', color: '#ba63ef' },
+        { name: '深海吞星兽', copy: '它会吸收热度，免费互动的频率越高，单次伤害越会衰减。', color: '#3bbbd0' },
+        { name: '赤曜龙王', copy: '第三关开始进入高压阶段，只有团队节奏和大招才能稳定推进。', color: '#f06d5e' },
+        { name: '终焉观测者', copy: '远征深处的最终守门者，等待一次极低概率的传奇爆发。', color: '#e3ae4c' },
+      ];
+      const REWARDS = ['新手补给箱 · 能量上限 +5', '深海护符 · 护盾上限 +10', '赤曜核心 · 大招伤害 +8%', '远征宝库 · 随机装备机会提升'];
+      const RARE_EQUIPMENT = ['终焉之刃', '星陨棱镜', '虚空王冠', '龙魂引擎'];
+      const state = { level: 1, bossHp: 0, bossMaxHp: 0, baseHp: 100, energy: 0, energyMax: 100, shield: 0, score: 0, audience: 0, likes: 0, combo: 0, processed: 0, dropped: 0, queue: [], feed: [], rewards: [], equipment: [], lastAction: '等待直播互动', lastHit: '还没有攻击记录', lastUltimateAt: 0, shareBoostUntil: 0, recentFreeHits: [], lastRateAt: Date.now(), lastRateCount: 0, rate: 0, impactAt: 0, impactBuffer: null, impactTimer: undefined, nextBossAttackAt: 0, bossAttackCount: 0, gameOver: false };
+      const $ = (id) => document.getElementById(id);
+      const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+      const num = (value, fallback = 0) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+      const actorName = (action) => action.actor?.nickname || action.actor?.uniqueId || '直播间玩家';
+      const actorAvatar = (action) => action.actor?.avatarUrl || '';
+      const nowText = () => new Date().toLocaleTimeString([], { hour12: false });
+      const fmt = (value) => Math.round(value).toLocaleString();
+
+      function bossInfo() { return BOSS_BOOK[(state.level - 1) % BOSS_BOOK.length]; }
+      function startLevel(level) {
+        state.level = level; state.bossMaxHp = Math.round(50000 * Math.pow(1.72, level - 1)); state.bossHp = state.bossMaxHp; state.gameOver = false; state.nextBossAttackAt = Date.now() + 10000;
+        const info = bossInfo(); document.documentElement.style.setProperty('--boss-accent', info.color); $('bossTitle').textContent = info.name; $('bossCopy').textContent = info.copy; $('bossLevel').textContent = String(level); $('bossRewardHint').textContent = `通关奖励：${REWARDS[(level - 1) % REWARDS.length]}`;
+      }
+      function actorKey(action) { return action.actor?.uniqueId || action.actor?.id || actorName(action); }
+      function freeDamageScale() {
+        const now = Date.now(); state.recentFreeHits = state.recentFreeHits.filter((time) => now - time < 5000); state.recentFreeHits.push(now);
+        const rate = state.recentFreeHits.length / 5; return rate <= 18 ? 1 : Math.max(.12, 18 / rate);
+      }
+      function bossTurn() {
+        if (state.gameOver || state.bossHp <= 0) return;
+        const info = bossInfo(); const enraged = state.bossHp / state.bossMaxHp <= .25; const critical = Math.random() < (enraged ? .18 : .08); const rawDamage = Math.max(1, Math.round((8 + state.level * 2) * (enraged ? 1.35 : 1) * (critical ? 2 : 1))); const shieldBlocked = Math.min(state.shield, rawDamage); const baseDamage = rawDamage - shieldBlocked;
+        state.shield -= shieldBlocked; state.baseHp = clamp(state.baseHp - baseDamage, 0, 100); state.bossAttackCount += 1; state.nextBossAttackAt = Date.now() + (critical ? 8000 : 10000);
+        const bossAction = { action: 'BOSS_ATTACK', power: rawDamage, actor: { nickname: `Boss · ${info.name}` } }; const result = baseDamage > 0 ? `Boss 反击 · 护盾吸收 ${shieldBlocked} · 基地损失 ${baseDamage}` : `Boss 反击 · 护盾完全抵挡 ${shieldBlocked}`;
+        state.lastAction = `${info.name} 发动${critical ? '暴击' : ''}反击`; state.lastHit = result; addFeed(bossAction, `${result}${state.baseHp <= 0 ? ' · 基地失守' : ''}`, baseDamage); showImpact(bossAction, critical ? 'Boss 暴击反击' : 'Boss 反击', baseDamage || rawDamage, critical ? 'ultimate' : 'normal', `${result}${state.baseHp <= 0 ? ' · 发送 heal、shield、关注或礼物救援' : ''}`);
+        if (state.baseHp <= 0) { state.gameOver = true; state.combo = 0; }
+      }
+      function addEnergy(value, action) {
+        state.energy = clamp(state.energy + value, 0, state.energyMax);
+        if (state.energy >= state.energyMax && Date.now() - state.lastUltimateAt >= 12000) triggerUltimate('联动能量大招', action, Math.round(state.bossMaxHp * .055));
+      }
+      function addFeed(action, result, damage = 0, rare = false) {
+        state.feed.unshift({ time: nowText(), action: action.action, actor: actorName(action), avatar: actorAvatar(action), result, damage, rare }); state.feed.length = Math.min(18, state.feed.length);
+      }
+      function rewardForLevel(level) {
+        const reward = REWARDS[(level - 1) % REWARDS.length]; state.rewards.unshift({ text: `第 ${level} 关通关 · ${reward}`, rare: false }); state.rewards.length = Math.min(8, state.rewards.length); return reward;
+      }
+      function maybeRareDrop(action, source) {
+        if (Math.random() >= .0006) return false;
+        const equipment = RARE_EQUIPMENT[Math.floor(Math.random() * RARE_EQUIPMENT.length)]; state.equipment.unshift(equipment); state.rewards.unshift({ text: `传奇装备爆出 · ${equipment} · ${actorName(action)} 触发${source}`, rare: true }); state.rewards.length = Math.min(8, state.rewards.length); return true;
+      }
+      function finishLevel(action, source, rare = false) {
+        const cleared = state.level; const reward = rewardForLevel(cleared); state.score += 1000 * cleared; state.combo = 0; state.lastHit = `${actorName(action)} 击破了第 ${cleared} 关，获得 ${reward}`; startLevel(cleared + 1); render(); showImpact(action, `${source} · ${rare ? '传奇秒杀' : 'Boss 击破'}`, state.bossMaxHp, rare ? 'legendary' : 'ultimate', rare ? '装备爆出 · 秒杀 Boss' : `第 ${cleared} 关通关 · ${reward}`); }
+      function dealDamage(action, baseDamage, operation, tier = 'normal') {
+        const multiplier = Date.now() < state.shareBoostUntil ? 1.25 : 1; const damage = Math.max(1, Math.round(baseDamage * multiplier)); const actual = Math.min(state.bossHp, damage); state.bossHp -= actual; state.score += actual; state.combo += 1; state.lastHit = `${actorName(action)} 对 Boss 造成 ${fmt(actual)} 点伤害 · ${operation}`; addFeed(action, `${operation} · ${fmt(actual)} 伤害`, actual); showImpact(action, operation, actual, tier, ''); if (state.bossHp <= 0) finishLevel(action, operation); }
+      function triggerUltimate(source, action, baseDamage) {
+        const now = Date.now(); if (now - state.lastUltimateAt < 12000) { state.energy = Math.min(state.energyMax, state.energy + 3); state.lastAction = `${actorName(action)} 触发${source}，但大招冷却中`; addFeed(action, `${source} 冷却中`, 0); return false; }
+        state.lastUltimateAt = now; state.energy = 0; const rare = maybeRareDrop(action, source); if (rare) { state.lastAction = `${actorName(action)} 触发${source}，传奇装备让 Boss 被秒杀`; finishLevel(action, source, true); return true; }
+        dealDamage(action, Math.max(1, baseDamage), source, 'ultimate'); state.lastAction = `${actorName(action)} 触发${source}`; return true;
+      }
+      function showImpact(action, operation, damage, tier = 'normal', extra = '') {
+        const important = tier !== 'normal'; const now = Date.now(); if (!important && now - state.impactAt < 260) { state.impactBuffer = { action, operation: '高频联动汇总', damage: (state.impactBuffer?.damage || 0) + damage, extra: '免费互动伤害已按频率衰减并汇总' }; if (!state.impactTimer) state.impactTimer = setTimeout(() => { const buffered = state.impactBuffer; state.impactBuffer = null; state.impactTimer = undefined; if (buffered) showImpact(buffered.action, buffered.operation, buffered.damage, 'normal', buffered.extra); }, 260); return; } state.impactAt = now; const card = document.createElement('div'); card.className = `impact ${tier}`; const image = document.createElement('img'); image.className = 'impact-avatar'; image.alt = ''; image.src = action.actor?.avatarUrl || ''; image.onerror = () => { image.style.display = 'none'; }; const copy = document.createElement('div'); copy.className = 'impact-copy'; const who = document.createElement('strong'); who.textContent = actorName(action); const what = document.createElement('span'); what.textContent = extra || `对 Boss 造成 ${fmt(damage)} 点伤害 · ${operation}`; copy.append(who, what); const amount = document.createElement('div'); amount.className = 'impact-damage'; amount.textContent = damage > 0 ? `-${fmt(damage)}` : '效果'; card.append(image, copy, amount); $('effectLayer').append(card); setTimeout(() => card.remove(), tier === 'legendary' ? 4000 : tier === 'ultimate' ? 2800 : 2300); }
+
+      function applyAction(action) {
+        if (state.gameOver && !['CHAT_HEAL', 'CHAT_SHIELD', 'FOLLOW_SHIELD', 'GIFT_ULTIMATE', 'GIFT_ATTACK'].includes(action.action)) { state.processed += 1; state.lastAction = `${actorName(action)}：基地失守，等待救援`; return; }
+        const power = Math.max(0, num(action.power, 1)); const count = Math.max(1, num(action.args?.count, 1)); let result = '';
+        switch (action.action) {
+          case 'CHAT_ATTACK': { const damage = Math.round((15 + state.level * 2) * freeDamageScale()); dealDamage(action, damage, '聊天攻击'); result = '聊天攻击'; break; }
+          case 'CHAT_HEAL': { const rescue = state.gameOver; const heal = rescue ? 35 : Math.min(20, power); if (rescue) { state.gameOver = false; state.nextBossAttackAt = Date.now() + 10000; } state.baseHp = clamp(state.baseHp + heal, 0, 100); state.score += heal; addFeed(action, `${rescue ? '基地复苏' : '基地回血'} +${heal}`, 0); showImpact(action, rescue ? '紧急救援' : '基地治疗', 0, rescue ? 'ultimate' : 'normal', `基地生命 +${heal}${rescue ? ' · 重新守城' : ''}`); result = `${rescue ? '基地复苏' : '基地回血'} +${heal}`; break; }
+          case 'CHAT_SHIELD': { const rescue = state.gameOver; const shield = Math.min(18, power); if (rescue) { state.gameOver = false; state.baseHp = 20; state.nextBossAttackAt = Date.now() + 10000; } state.shield = clamp(state.shield + shield, 0, 100); addEnergy(3, action); addFeed(action, `${rescue ? '护盾救援' : '护盾'} +${shield}`, 0); showImpact(action, rescue ? '护盾救援' : '护盾展开', 0, rescue ? 'ultimate' : 'normal', `${rescue ? '基地复苏 +20 · ' : ''}护盾 +${shield}`); result = rescue ? '护盾救援' : `护盾 +${shield}`; break; }
+          case 'GIFT_ULTIMATE': case 'GIFT_ATTACK': { const rescue = state.gameOver; if (rescue) { state.gameOver = false; state.baseHp = 50; state.nextBossAttackAt = Date.now() + 10000; } addEnergy(Math.min(35, 12 + count * 2), action); const cooldown = Date.now() - state.lastUltimateAt < 12000; if (!cooldown) triggerUltimate(rescue ? '礼物救援大招' : '礼物大招', action, Math.round(state.bossMaxHp * .075 + power * count)); else dealDamage(action, Math.max(20, Math.round(power * count * .45)), '冷却期礼物冲击', 'normal'); result = cooldown ? '礼物冲击' : rescue ? '礼物救援大招' : '礼物大招'; break; }
+          case 'LIKE_PULSE': { const likes = count; state.likes += likes; const damage = Math.max(1, Math.round(Math.log2(likes + 1) * freeDamageScale())); addEnergy(Math.min(8, Math.max(1, likes * .3)), action); dealDamage(action, damage, `点赞洪流 ×${fmt(likes)}`); result = `点赞 +${fmt(likes)}`; break; }
+          case 'JOIN_REINFORCEMENT': { state.audience += 1; addEnergy(1, action); addFeed(action, '援军加入', 0); result = '援军 +1'; break; }
+          case 'FOLLOW_SHIELD': { const rescue = state.gameOver; const shield = Math.min(20, power); if (rescue) { state.gameOver = false; state.baseHp = 15; state.nextBossAttackAt = Date.now() + 10000; } state.shield = clamp(state.shield + shield, 0, 100); addEnergy(8, action); state.score += 25; addFeed(action, `${rescue ? '关注救援' : '关注护盾'} +${shield}`, 0); showImpact(action, rescue ? '关注救援' : '关注护盾', 0, rescue ? 'ultimate' : 'normal', `${rescue ? '基地复苏 +15 · ' : ''}护盾 +${shield} · 免费守护`); result = rescue ? '关注救援' : '关注护盾'; break; }
+          case 'SHARE_BOOST': { state.shareBoostUntil = Date.now() + 30000; addEnergy(15, action); state.score += 60; addFeed(action, '分享增幅 30 秒', 0); showImpact(action, '分享增幅', 0, 'normal', '全队伤害提升 25% · 持续 30 秒'); result = '分享增幅'; break; }
+          case 'ROOM_STATUS': { const viewers = num(action.args?.viewerCount, state.audience); if (viewers > 0) state.audience = viewers; state.likes = Math.max(state.likes, num(action.args?.totalLikes, state.likes)); result = `同步观众 ${fmt(state.audience)}`; break; }
+          case 'STREAM_ENDED': { result = '直播结束'; addFeed(action, result); break; }
+          default: { result = '未定义动作'; addFeed(action, result); break; }
+        }
+        state.processed += 1; state.lastAction = `${actorName(action)}：${result}`;
+      }
+      function render() {
+        const bossTimer = Math.max(0, Math.ceil((state.nextBossAttackAt - Date.now()) / 1000)); $('bossBar').style.width = `${state.bossMaxHp ? state.bossHp / state.bossMaxHp * 100 : 100}%`; $('bossHp').textContent = `${fmt(state.bossHp)} / ${fmt(state.bossMaxHp)}`; $('bossTimer').textContent = state.gameOver ? '基地失守 · 等待救援' : `Boss 反击倒计时 ${bossTimer}s`; $('hpBar').style.width = `${state.baseHp}%`; $('baseHp').textContent = `${Math.round(state.baseHp)} / 100`; $('baseNote').textContent = state.gameOver ? '基地已失守：发送 heal、shield、关注或礼物可以救援。' : 'Boss 每 10 秒反击；护盾会优先吸收伤害。'; $('energyBar').style.width = `${state.energy / state.energyMax * 100}%`; $('energy').textContent = `${Math.round(state.energy)} / ${state.energyMax}`; $('shieldBar').style.width = `${state.shield}%`; $('shield').textContent = String(Math.round(state.shield)); $('score').textContent = fmt(state.score); $('audience').textContent = fmt(state.audience); $('likes').textContent = fmt(state.likes); $('processed').textContent = fmt(state.processed); $('dropped').textContent = fmt(state.dropped); $('combo').textContent = `连击 ×${state.combo}`; $('lastAction').textContent = state.lastAction; $('lastHit').textContent = state.lastHit; $('rate').textContent = `${state.rate} 动作/秒`; $('energyNote').className = state.energy >= state.energyMax ? 'meter-note ultimate-ready' : 'meter-note'; $('energyNote').textContent = state.energy >= state.energyMax ? (Date.now() - state.lastUltimateAt < 12000 ? '能量已满 · 大招冷却中，继续积累不会重复触发' : '能量已满 · 下一次互动将触发联动大招') : '点赞、分享和免费互动会充能；满能量大招有 12 秒冷却'; $('equipmentCount').textContent = `装备 ${state.equipment.length}`;
+        $('feed').innerHTML = state.feed.length ? state.feed.map((item, index) => `<div class="feed-row"><img class="feed-avatar" data-feed-avatar="${index}" alt=""><span class="feed-time">${item.time}</span><span class="feed-action">${item.action}</span><span class="feed-actor"></span><span class="feed-result">${item.result}</span></div>`).join('') : '<div class="empty">等待第一条动作…</div>'; [...$('feed').querySelectorAll('.feed-actor')].forEach((element, index) => { element.textContent = state.feed[index].actor; }); [...$('feed').querySelectorAll('[data-feed-avatar]')].forEach((element, index) => { const avatar = state.feed[index].avatar; if (avatar) element.src = avatar; else element.style.visibility = 'hidden'; element.onerror = () => { element.style.visibility = 'hidden'; }; });
+        $('rewardList').innerHTML = state.rewards.length ? state.rewards.map((item) => `<div class="reward ${item.rare ? 'legendary' : ''}"></div>`).join('') : '<div class="empty">击破 Boss 后获得奖励</div>'; [...$('rewardList').querySelectorAll('.reward')].forEach((element, index) => { element.textContent = state.rewards[index].text; });
+      }
+      function flush() { const batch = state.queue.splice(0, 500); for (const action of batch) applyAction(action); const now = Date.now(); if (now - state.lastRateAt >= 1000) { state.rate = Math.round((state.processed - state.lastRateCount) * 1000 / (now - state.lastRateAt)); state.lastRateCount = state.processed; state.lastRateAt = now; } render(); if (state.queue.length) requestAnimationFrame(flush); }
+      function queueAction(action) { state.queue.push(action); if (state.queue.length > 5000) { const remove = state.queue.length - 5000; state.queue.splice(0, remove); state.dropped += remove; } if (state.queue.length === 1) requestAnimationFrame(flush); }
+      function resetGame() { state.level = 1; state.baseHp = 100; state.energy = 0; state.shield = 0; state.score = 0; state.audience = 0; state.likes = 0; state.combo = 0; state.processed = 0; state.dropped = 0; state.bossAttackCount = 0; state.gameOver = false; state.queue.length = 0; state.feed.length = 0; state.rewards.length = 0; state.equipment.length = 0; state.lastUltimateAt = 0; state.shareBoostUntil = 0; state.lastAction = '等待直播互动'; state.lastHit = '还没有攻击记录'; state.impactBuffer = null; startLevel(1); render(); }
+      $('reset').addEventListener('click', resetGame);
+      function connect() { const protocol = location.protocol === 'https:' ? 'wss' : 'ws'; const socket = new WebSocket(`${protocol}://${location.hostname}:8765/actions`); socket.addEventListener('open', () => { $('status').textContent = '动作流已连接'; $('status').className = 'status connected'; }); socket.addEventListener('close', () => { $('status').textContent = '动作流已断开，重试中'; $('status').className = 'status error'; setTimeout(connect, 1500); }); socket.addEventListener('error', () => socket.close()); socket.addEventListener('message', (message) => { try { const frame = JSON.parse(message.data); if (frame.op === 'action') queueAction(frame.action); } catch { /* ignore malformed frames */ } }); }
+      resetGame(); setInterval(() => { if (Date.now() >= state.nextBossAttackAt) bossTurn(); render(); }, 1000); connect();
+    </script>
+  </body>
+</html>

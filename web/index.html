@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f172a" />
+    <title>TikTok LIVE 互动实验室</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">本地优先 / V0.1</p>
+          <h1>TikTok LIVE 互动实验室</h1>
+        </div>
+        <div class="topbar-links">
+          <a class="connection-pill game-link" href="/test-word-game/" target="_blank" rel="noreferrer">打开语义猜词</a>
+          <span id="wsEventStatus" class="connection-pill muted">事件 WS：连接中</span>
+          <span id="wsActionStatus" class="connection-pill muted">动作 WS：连接中</span>
+        </div>
+      </header>
+
+      <main class="main-grid">
+        <section class="panel connection-panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">数据源适配器</p>
+              <h2>直播连接</h2>
+            </div>
+            <span id="statusDot" class="status-dot idle"></span>
+          </div>
+          <div class="connection-form">
+            <label for="username">TikTok 用户名</label>
+            <div class="input-row">
+              <input id="username" placeholder="请输入用户名（不含 @）" autocomplete="off" />
+              <button id="connectButton" class="button primary">连接</button>
+              <button id="disconnectButton" class="button ghost">断开</button>
+            </div>
+          </div>
+          <div class="connection-meta">
+            <div><span>状态</span><strong id="statusText">待机</strong></div>
+            <div><span>房间 ID</span><strong id="roomId">—</strong></div>
+            <div><span>连接时长</span><strong id="duration">00:00</strong></div>
+          </div>
+          <p id="errorText" class="error-text" hidden></p>
+        </section>
+
+        <section class="panel stats-panel">
+          <div class="panel-heading compact">
+            <div>
+              <p class="eyebrow">标准化事件总线</p>
+              <h2>实时统计</h2>
+            </div>
+            <span class="live-badge"><i></i> 实时</span>
+          </div>
+          <div class="stat-grid">
+            <div class="stat-card"><span>聊天</span><strong id="statChat">0</strong></div>
+            <div class="stat-card"><span>礼物</span><strong id="statGift">0</strong></div>
+            <div class="stat-card"><span>点赞</span><strong id="statLike">0</strong></div>
+            <div class="stat-card"><span>加入</span><strong id="statJoin">0</strong></div>
+            <div class="stat-card"><span>关注</span><strong id="statFollow">0</strong></div>
+            <div class="stat-card"><span>分享</span><strong id="statShare">0</strong></div>
+          </div>
+          <div class="metric-row">
+            <span><b id="eventsPerSec">0</b> 事件/秒</span>
+            <span><b id="viewerCount">—</b> 观众</span>
+            <span><b id="totalLikes">—</b> 总点赞</span>
+          </div>
+        </section>
+
+        <section class="panel stream-panel">
+          <div class="panel-heading stream-heading">
+            <div>
+              <p class="eyebrow">可观测性</p>
+              <h2>事件流</h2>
+            </div>
+            <div class="stream-tools">
+              <div id="filterBar" class="filter-bar"></div>
+              <button id="clearButton" class="button ghost small">清空</button>
+            </div>
+          </div>
+          <div id="eventList" class="event-list empty-state">等待标准化事件…</div>
+        </section>
+
+        <aside class="side-column">
+          <section class="panel recorder-panel">
+            <div class="panel-heading compact">
+              <div><p class="eyebrow">JSONL</p><h2>录制器</h2></div>
+              <span id="recordingBadge" class="recording-badge">未录制</span>
+            </div>
+            <p class="muted-copy">追加写入的会话会独立保存研究数据，不受界面最多显示 1,000 条事件的限制。</p>
+            <div class="button-row">
+              <button id="recordButton" class="button danger">开始录制</button>
+              <button id="stopRecordButton" class="button ghost" disabled>停止</button>
+            </div>
+          </section>
+
+          <section class="panel replay-panel">
+            <div class="panel-heading compact"><div><p class="eyebrow">数据源适配器</p><h2>回放</h2></div><span id="replayState" class="small-state">待机</span></div>
+            <label for="sessionSelect">录制会话</label>
+            <select id="sessionSelect"><option value="">No sessions yet</option></select>
+            <div class="replay-controls">
+              <select id="speedSelect" aria-label="Replay speed">
+                <option value="0.25">0.25 倍</option><option value="0.5">0.5 倍</option><option value="1" selected>1 倍</option><option value="2">2 倍</option><option value="5">5 倍</option><option value="10">10 倍</option><option value="MAX">最快</option>
+              </select>
+              <button id="replayPlayButton" class="button primary">播放</button>
+              <button id="replayPauseButton" class="button ghost">暂停</button>
+              <button id="replayStopButton" class="button ghost">停止</button>
+              <button id="replayRestartButton" class="button ghost">重新开始</button>
+            </div>
+            <div id="replayProgress" class="progress-copy">0 / 0</div>
+          </section>
+
+          <section class="panel simulator-panel">
+            <div class="panel-heading compact"><div><p class="eyebrow">无需直播</p><h2>模拟器</h2></div><span class="simulator-badge">就绪</span></div>
+            <label for="simUser">用户</label>
+            <input id="simUser" value="TestPlayer1" />
+            <label for="simText">评论</label>
+            <input id="simText" value="red" />
+            <div class="sim-grid">
+              <button class="button simulator-action" data-sim="chat">发送聊天</button>
+              <button class="button simulator-action" data-sim="like">发送点赞</button>
+              <button class="button simulator-action" data-sim="gift">发送礼物</button>
+              <button class="button simulator-action" data-sim="join">发送加入</button>
+              <button class="button simulator-action" data-sim="follow">发送关注</button>
+              <button class="button simulator-action" data-sim="share">发送分享</button>
+            </div>
+            <div class="gift-fields">
+              <input id="simGiftId" value="5655" placeholder="giftId" />
+              <input id="simGiftName" value="Rose" placeholder="giftName" />
+              <input id="simGiftCount" type="number" value="1" min="1" placeholder="count" />
+              <input id="simDiamondCount" type="number" value="1" min="0" placeholder="diamonds" />
+            </div>
+          </section>
+
+          <section class="panel debug-panel">
+            <div class="panel-heading compact"><div><p class="eyebrow">调试模式</p><h2>解码数据</h2></div><span id="debugBadge" class="small-state">关闭</span></div>
+            <pre id="debugOutput" class="json-output">调试模式已关闭。如需查看解码事件，请设置 DEBUG=true 后重启服务。</pre>
+          </section>
+        </aside>
+
+        <section class="panel detail-panel">
+          <div class="panel-heading compact"><div><p class="eyebrow">检查器</p><h2>选中事件</h2></div><span id="selectedEventLabel" class="small-state">无</span></div>
+          <div class="detail-grid">
+            <div><h3>标准化 JSON</h3><pre id="normalizedOutput" class="json-output">点击事件查看详情。</pre></div>
+            <div><h3>原始 / 解码 JSON</h3><pre id="rawOutput" class="json-output">仅在 DEBUG 或 STORE_RAW_EVENTS 开启时可用。</pre></div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
