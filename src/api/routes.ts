@@ -7,6 +7,8 @@ export interface LabController {
   status(): unknown;
   adminConfigView(): unknown;
   updateAdminConfig(patch: unknown): Promise<unknown>;
+  recentEvents(limit?: number): unknown;
+  clearRecentEvents(): Promise<unknown>;
   dictionaryStatus(): unknown;
   resolveDictionaryWord(text: string, language?: string): unknown;
   connect(username: string): Promise<unknown>;
@@ -48,6 +50,7 @@ const simulateSchema = z.object({
   diamondCount: z.number().nonnegative().optional(),
   totalLikes: z.number().nonnegative().optional(),
 });
+const recentEventsSchema = z.object({ limit: z.coerce.number().int().min(1).max(10_000).default(1_000) });
 
 export function createApiRouter(controller: LabController): Router {
   const router = Router();
@@ -56,6 +59,14 @@ export function createApiRouter(controller: LabController): Router {
   router.get("/admin/config", (_req, res) => res.json({ ok: true, data: controller.adminConfigView() }));
   router.patch("/admin/config", asyncHandler(async (req, res) => {
     res.json({ ok: true, data: await controller.updateAdminConfig(req.body) });
+  }));
+  router.get("/events/recent", (req, res) => {
+    const { limit } = recentEventsSchema.parse(req.query);
+    res.json({ ok: true, data: controller.recentEvents(limit) });
+  });
+  router.post("/events/clear", asyncHandler(async (req, res) => {
+    emptyBodySchema.parse(req.body);
+    res.json({ ok: true, data: await controller.clearRecentEvents() });
   }));
   router.get("/dictionary/status", (_req, res) => res.json({ ok: true, data: controller.dictionaryStatus() }));
   router.get("/dictionary/resolve", (req, res) => {

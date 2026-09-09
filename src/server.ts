@@ -56,6 +56,7 @@ class InteractionLab implements LabController {
   private readonly statuses: Record<SourceKind, SourceStatus> = structuredClone(statusDefaults);
   private readonly counts: Record<string, number> = {};
   private readonly eventTimes: number[] = [];
+  private readonly recentEventBuffer: NormalizedLiveEvent[] = [];
   private latestDebug: unknown;
   private currentTikTokUsername?: string;
   private readonly dataDir: string;
@@ -72,7 +73,7 @@ class InteractionLab implements LabController {
     this.recorder = new Recorder({ dataDir: this.dataDir });
     this.reader = new SessionReader(this.dataDir);
     this.mapper = new ActionMapper(loadRulesSync());
-    this.eventGateway = new EventGateway(logger);
+    this.eventGateway = new EventGateway(logger, 1024 * 1024, () => this.recentEvents());
     this.actionGateway = new ActionGateway(logger);
     this.semanticGateway = new SemanticGameGateway(logger, () => this.semanticGame.snapshot());
     this.semanticGame = new SemanticGameService(this.semanticGateway, this.adminConfig);
@@ -203,6 +204,11 @@ class InteractionLab implements LabController {
         viewerCount: this.counts.viewerCount,
         totalLikes: this.counts.totalLikes,
       },
+      runtime: {
+        httpPort: Number(process.env.PORT ?? 3000),
+        websocketPort: Number(process.env.WS_PORT ?? 8765),
+        recentEventCount: this.recentEventBuffer.length,
+      },
       debug: {
         enabled: process.env.DEBUG === "true" || process.env.DEBUG === "1",
         latestDecoded: this.latestDebug,
@@ -217,6 +223,16 @@ class InteractionLab implements LabController {
 
   async updateAdminConfig(patch: unknown): Promise<unknown> {
     return this.adminConfig.update(patch);
+  }
+
+  recentEvents(limit = this.adminConfig.current.observability.eventBufferLimit): NormalizedLiveEvent[] {
+    const safeLimit = Math.max(1, Math.min(10_000, Math.floor(limit)));
+    return this.recentEventBuffer.slice(0, safeLimit);
+  }
+
+  async clearRecentEvents(): Promise<unknown> {
+    this.recentEventBuffer.length = 0;
+    return { cleared: true };
   }
 
   dictionaryStatus(): unknown {
@@ -262,6 +278,9 @@ class InteractionLab implements LabController {
       const { session, sequence } = this.sessions.nextSequence(sourceKind);
       const event = this.normalizer.normalize(sourceEvent, sourceKind, session.sessionId, sequence);
       this.observe(event);
+      this.recentEventBuffer.unshift(event);
+      const bufferLimit = this.adminConfig.current.observability.eventBufferLimit;
+      if (this.recentEventBuffer.length > bufferLimit) this.recentEventBuffer.length = bufferLimit;
       this.eventBus.emit(event);
       logger.debug({ source: sourceKind, type: event.type, sequence: event.sequence }, "event_received");
     });

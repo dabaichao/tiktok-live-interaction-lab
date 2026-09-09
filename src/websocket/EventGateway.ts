@@ -7,15 +7,20 @@ export interface GatewayLogger {
   warn(data: object, message?: string): void;
 }
 
+type RecentEventsProvider = () => NormalizedLiveEvent[];
+
 export class EventGateway {
   private readonly server = new WebSocketServer({ noServer: true });
   private readonly clients = new Set<WebSocket>();
 
-  constructor(private readonly logger: GatewayLogger, private readonly maxBufferedBytes = 1024 * 1024) {
+  constructor(private readonly logger: GatewayLogger, private readonly maxBufferedBytes = 1024 * 1024, private readonly recentEvents: RecentEventsProvider = () => []) {
     this.server.on("connection", (socket, request) => {
       this.clients.add(socket);
       this.logger.info({ path: request.url }, "ws_client_connected");
       socket.send(JSON.stringify({ op: "hello", protocol: "tiktok-live-lab", version: 1 }));
+      // Send the retained history oldest-first because the dashboard prepends
+      // each incoming event, preserving newest-first display order.
+      for (const event of [...this.recentEvents()].reverse()) socket.send(safeStringify({ op: "event", event }));
       socket.on("close", () => {
         this.clients.delete(socket);
         this.logger.info({}, "ws_client_disconnected");

@@ -35,6 +35,7 @@ let latestStatus: any;
 let latestConfig: any;
 let latestGameSnapshot: any;
 let refreshTimer: number | undefined;
+let websocketPort = 8765;
 
 const api = async (path: string, options: RequestInit = {}): Promise<any> => {
   const response = await fetch(`/api${path}`, { headers: { "content-type": "application/json", ...(options.headers ?? {}) }, ...options });
@@ -152,6 +153,7 @@ function sourceTone(status: string): "live" | "success" | "warning" | "danger" |
 
 function updateStatus(data: any): void {
   latestStatus = data;
+  websocketPort = Number(data.runtime?.websocketPort ?? websocketPort);
   const source = data.sources?.tiktok ?? {};
   const status = String(source.status ?? "idle");
   const label = statusLabels[status] ?? status;
@@ -262,7 +264,15 @@ $("connectButton").addEventListener("click", async () => { try { const username 
 $("disconnectButton").addEventListener("click", async () => { try { await post("/disconnect"); toast("已断开 TikTok 连接", "info"); await refreshStatus(); } catch (error) { showError(error); } });
 $("recordButton").addEventListener("click", async () => { try { await post("/recording/start"); toast("事件录制已开始", "success"); await refreshStatus(); } catch (error) { showError(error); } });
 $("stopRecordButton").addEventListener("click", async () => { try { await post("/recording/stop"); toast("事件录制已停止", "info"); await refreshStatus(); await refreshSessions(); } catch (error) { showError(error); } });
-$("clearButton").addEventListener("click", () => { events.length = 0; renderEvents(); renderRecentActivity(); });
+$("clearButton").addEventListener("click", async () => {
+  try {
+    await post("/events/clear");
+    events.length = 0;
+    renderEvents();
+    renderRecentActivity();
+    toast("已清空服务端事件缓存", "info");
+  } catch (error) { showError(error); }
+});
 $("replayPlayButton").addEventListener("click", async () => { try { const speedValue = ($("speedSelect") as HTMLSelectElement).value; await post("/replay/start", { sessionId: ($("sessionSelect") as HTMLSelectElement).value, speed: speedValue === "MAX" ? "MAX" : Number(speedValue) }); await refreshStatus(); } catch (error) { showError(error); } });
 $("replayPauseButton").addEventListener("click", async () => { try { await post("/replay/pause"); await refreshStatus(); } catch (error) { showError(error); } });
 $("replayStopButton").addEventListener("click", async () => { try { await post("/replay/stop"); await refreshStatus(); } catch (error) { showError(error); } });
@@ -281,7 +291,8 @@ for (const button of document.querySelectorAll<HTMLButtonElement>(".simulator-ac
 }
 
 function connectWebSocket(path: string, onMessage: (message: any) => void, statusId: string): void {
-  const socket = new WebSocket(`ws://${window.location.hostname}:8765${path}`);
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const socket = new WebSocket(`${protocol}://${window.location.hostname}:${websocketPort}${path}`);
   socket.addEventListener("open", () => { $(statusId).textContent = `${path.includes("events") ? "事件" : "动作"} WS：已连接`; $(statusId).className = "connection-pill success"; });
   socket.addEventListener("message", (event) => { try { onMessage(JSON.parse(event.data)); } catch { /* ignore malformed UI message */ } });
   socket.addEventListener("close", () => { $(statusId).textContent = `${path.includes("events") ? "事件" : "动作"} WS：断开`; $(statusId).className = "connection-pill muted"; window.setTimeout(() => connectWebSocket(path, onMessage, statusId), 1500); });
@@ -292,7 +303,8 @@ renderFilters();
 connectWebSocket("/events", (message) => { if (message?.op === "event" && message.event?.eventId) addEvent(message.event); else if (message?.eventId) addEvent(message); }, "wsEventStatus");
 connectWebSocket("/actions", () => undefined, "wsActionStatus");
 function connectGameSocket(): void {
-  const gameSocket = new WebSocket(`ws://${window.location.hostname}:8765/word-game`);
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const gameSocket = new WebSocket(`${protocol}://${window.location.hostname}:${websocketPort}/word-game`);
   gameSocket.addEventListener("message", (event) => { try { updateGameSnapshot(JSON.parse(event.data)); } catch { /* ignore */ } });
   gameSocket.addEventListener("close", () => window.setTimeout(connectGameSocket, 1500));
 }
