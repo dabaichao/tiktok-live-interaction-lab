@@ -100,11 +100,19 @@ export class DictionaryLibraryService {
   }
 
   async addSupplements(input: { language: DictionaryLanguage; words: string[]; sourceModel: string }): Promise<{ accepted: number; duplicates: number; totalPending: number; entries: SupplementEntry[] }> {
-    const dictionary = this.loadActive();
     const existing = new Set<string>();
-    for (const concept of dictionary.snapshot.concepts) {
-      for (const label of Object.values(concept.labels)) if (label) existing.add(key(input.language, label));
-      for (const alias of concept.aliases) if (alias.lang === input.language) existing.add(key(input.language, alias.text));
+    const dictionaries = [ConceptDictionary.default()];
+    for (const packageView of await this.uploadedViews()) {
+      try {
+        const raw = JSON.parse(await readFile(join(this.libraryDir, packageView.fileName), "utf8")) as unknown;
+        dictionaries.push(new ConceptDictionary({ snapshot: extractSnapshot(raw) }));
+      } catch { /* ignore a package that disappeared during the read */ }
+    }
+    for (const dictionary of dictionaries) {
+      for (const concept of dictionary.snapshot.concepts) {
+        for (const label of Object.values(concept.labels)) if (label) existing.add(key(input.language, label));
+        for (const alias of concept.aliases) if (alias.lang === input.language) existing.add(key(input.language, alias.text));
+      }
     }
     const pending = await this.readSupplements();
     for (const item of pending) existing.add(key(item.language, item.word));
