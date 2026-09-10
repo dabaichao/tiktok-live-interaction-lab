@@ -39,8 +39,22 @@ let websocketPort = 8765;
 
 const api = async (path: string, options: RequestInit = {}): Promise<any> => {
   const response = await fetch(`/api${path}`, { headers: { "content-type": "application/json", ...(options.headers ?? {}) }, ...options });
-  const body = await response.json().catch(() => ({}));
+  const contentType = response.headers.get("content-type") ?? "";
+  const text = await response.text();
+  let body: any = {};
+  if (contentType.includes("application/json")) {
+    try {
+      body = JSON.parse(text);
+    } catch {
+      throw new Error("后台返回的 JSON 无法解析，请重启后台服务后再试");
+    }
+  } else if (/^\s*<(?:!doctype\s+html|html)\b/i.test(text)) {
+    throw new Error("后台接口尚未加载，请重启服务后再打开管理后台");
+  } else {
+    throw new Error(`服务器返回了无法识别的响应（HTTP ${response.status}）`);
+  }
   if (!response.ok || body.ok === false) throw new Error(body.error?.message ?? `请求失败（${response.status}）`);
+  if (body.data === undefined) throw new Error("后台接口没有返回数据，请重启后台服务后再试");
   return body.data;
 };
 const post = (path: string, body?: unknown) => api(path, { method: "POST", body: body === undefined ? undefined : JSON.stringify(body) });
@@ -72,8 +86,16 @@ function toast(message: string, tone: "success" | "error" | "info" = "info"): vo
   window.setTimeout(() => item.remove(), 4200);
 }
 
+function localizedError(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error);
+  if (/Cannot read properties of undefined.*wordlistCount/i.test(raw)) return "词库接口没有返回数据，请重启后台服务后再刷新。";
+  if (/Failed to fetch|NetworkError|fetch failed/i.test(raw)) return "无法连接后台服务，请确认服务已启动。";
+  if (/Unexpected token|JSON/i.test(raw)) return "后台返回格式异常，请重启服务后再试。";
+  return raw;
+}
+
 function showError(error: unknown): void {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = localizedError(error);
   const errorEl = $("errorText");
   if (errorEl) { errorEl.hidden = false; errorEl.textContent = message; }
   toast(message, "error");
@@ -223,6 +245,7 @@ async function refreshConfig(): Promise<void> { try { fillConfig(await api("/adm
 async function refreshDictionaries(): Promise<void> {
   try {
     const library = await api("/dictionaries");
+    if (!library || typeof library !== "object") throw new Error("词库接口没有返回数据，请重启后台服务后再刷新。");
     $("wordlistCount").textContent = formatNumber(library.wordlistCount);
     $("questionBankCount").textContent = formatNumber(library.questionBankCount);
     $("supplementCount").textContent = formatNumber(library.supplementCount);
