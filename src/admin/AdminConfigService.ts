@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename, unlink } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { z } from "zod";
 
@@ -68,9 +69,10 @@ export class AdminConfigService {
   private config: AdminConfig;
   private source: "file" | "environment" = "environment";
   private lastEffects = { requiresRestart: false, requiresReconnect: false };
+  private updates: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly dataDir: string) {
-    this.config = defaultsFromEnvironment();
+  constructor(private readonly dataDir: string, initialConfig?: AdminConfig) {
+    this.config = initialConfig ? structuredClone(initialConfig) : defaultsFromEnvironment();
   }
 
   async load(): Promise<void> {
@@ -99,6 +101,11 @@ export class AdminConfigService {
     return structuredClone(this.config);
   }
 
+  /** Apply settings already durably stored by an independent operator service. */
+  applyPersistedConfig(config: AdminConfig): void {
+    this.config = adminConfigSchema.parse(config);
+  }
+
   view(): AdminConfigView {
     return {
       config: this.current,
@@ -112,14 +119,23 @@ export class AdminConfigService {
   }
 
   async update(patch: unknown): Promise<AdminConfigView> {
+    const job = this.updates.catch(() => undefined).then(() => this.commitUpdate(patch));
+    this.updates = job.catch(() => undefined);
+    return job;
+  }
+
+  private async commitUpdate(patch: unknown): Promise<AdminConfigView> {
     const previous = this.config;
-    this.config = adminConfigSchema.parse(deepMerge(this.config, patch));
+    const candidate = adminConfigSchema.parse(deepMerge(previous, patch));
+    await mkdir(dirname(this.filePath()), { recursive: true });
+    const temp = `${this.filePath()}.${randomUUID()}.tmp`;
+    try { await writeFile(temp, JSON.stringify(candidate, null, 2), "utf8"); await rename(temp, this.filePath()); }
+    finally { await unlink(temp).catch(() => undefined); }
+    this.config = candidate;
     this.lastEffects = {
       requiresRestart: previous.game.language !== this.config.game.language || previous.game.dictionaryPackageId !== this.config.game.dictionaryPackageId || previous.game.tickIntervalMs !== this.config.game.tickIntervalMs || previous.embedding.baseUrl !== this.config.embedding.baseUrl || previous.embedding.model !== this.config.embedding.model || previous.llm.baseUrl !== this.config.llm.baseUrl || previous.llm.routingMode !== this.config.llm.routingMode || previous.llm.preferredModel !== this.config.llm.preferredModel || previous.llm.fixedModel !== this.config.llm.fixedModel || previous.llm.fallbackModels.join(",") !== this.config.llm.fallbackModels.join(",") || previous.observability.debug !== this.config.observability.debug || previous.observability.storeRawEvents !== this.config.observability.storeRawEvents,
       requiresReconnect: previous.tiktok.autoReconnect !== this.config.tiktok.autoReconnect || previous.tiktok.extendedGiftInfo !== this.config.tiktok.extendedGiftInfo,
     };
-    await mkdir(dirname(this.filePath()), { recursive: true });
-    await writeFile(this.filePath(), JSON.stringify(this.config, null, 2), "utf8");
     this.source = "file";
     return this.view();
   }

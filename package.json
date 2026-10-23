@@ -4,19 +4,24 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.12.0"
   },
   "scripts": {
     "dev": "tsx src/server.ts",
+    "dev:douyin": "tsx src/douyin-server.ts",
     "build": "npm run build:web && tsc -p tsconfig.json",
     "build:web": "vite build",
     "start": "node dist/server.js",
+    "start:douyin": "node dist/douyin-server.js",
+    "setup:douyin-login": "node node_modules/electron/install.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "dictionary:gap-fill": "tsx tools/dictionary-gap-fill.ts"
   },
   "dependencies": {
+    "@dycast/core": "^1.0.6",
     "dotenv": "^16.4.7",
+    "electron": "44.4.1",
     "express": "^5.1.0",
     "pino": "^9.6.0",
     "tiktok-live-connector": "^2.4.2",

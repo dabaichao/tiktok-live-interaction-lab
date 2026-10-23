@@ -1,4 +1,4 @@
-export type SourceKind = "tiktok" | "replay" | "simulator";
+export type SourceKind = "tiktok" | "douyin" | "replay" | "simulator";
 
 export type SourceStatusName =
   | "idle"

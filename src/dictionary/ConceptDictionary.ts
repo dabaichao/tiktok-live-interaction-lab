@@ -97,8 +97,18 @@ export class ConceptDictionary {
     }));
   }
 
+  relatedGuessWords(answer: string, language = this.snapshot.defaultLanguage): string[] {
+    const key = this.normalizeSurface(answer);
+    return unique(this.conceptsFor(language, "guessable")
+      .filter((concept) => concept.relatedTo?.some((surface) => this.normalizeSurface(surface) === key))
+      .flatMap((concept) => [this.labelFor(concept, language), ...this.approvedAliases(concept)
+        .filter((alias) => alias.lang === language).map((alias) => alias.text)]
+        .filter((value): value is string => Boolean(value))));
+  }
+
   labelFor(concept: DictionaryConcept, language = this.snapshot.defaultLanguage): string | undefined {
-    return concept.labels[language] ?? concept.labels[this.snapshot.defaultLanguage] ?? concept.labels.en;
+    // A missing translation is a gap, not an answer in a different language.
+    return concept.labels[language];
   }
 
   canonicalFor(conceptId: string, language = this.snapshot.defaultLanguage): string | undefined {
@@ -153,31 +163,52 @@ function validateSnapshot(value: unknown): DictionarySnapshot {
   if (raw.schemaVersion !== 1 || typeof raw.wordlistId !== "string" || typeof raw.defaultLanguage !== "string" || !Array.isArray(raw.languages) || !Array.isArray(raw.concepts)) {
     throw new Error("Invalid dictionary snapshot metadata");
   }
+  if (!raw.languages.length || raw.languages.some(language=>typeof language!=="string"||!language.trim()) || !raw.languages.includes(raw.defaultLanguage)) throw new Error("词库语言列表无效，必须包含默认语言。");
+  const conceptIds=new Set<string>();
   const concepts = raw.concepts.map((item) => {
     if (!item || typeof item !== "object") throw new Error("Invalid dictionary concept");
     const concept = item as Partial<DictionaryConcept>;
     if (typeof concept.conceptId !== "string" || typeof concept.category !== "string" || typeof concept.labels !== "object" || concept.labels === null) throw new Error("Invalid dictionary concept fields");
+    if (!concept.conceptId.trim() || conceptIds.has(concept.conceptId)) throw new Error("词库概念 ID 为空或重复，请先去重。");
+    conceptIds.add(concept.conceptId);
+    for(const record of [concept.labels,concept.definitions??{}]) {
+      if(Array.isArray(record)||!record||typeof record!=="object"||Object.values(record).some(text=>typeof text!=="string")) throw new Error("词面与提示必须使用语言到文字的映射，不能是数字、数组或对象。");
+    }
+    if((concept.isAnswerable!==undefined&&typeof concept.isAnswerable!=="boolean")||(concept.isGuessable!==undefined&&typeof concept.isGuessable!=="boolean"))throw new Error("可出题与可猜词标记必须是布尔值。");
+    if(concept.status!==undefined&&!["draft","approved","blocked","archived"].includes(concept.status))throw new Error("词库审核状态不正确。");
     const explicitAliases = Array.isArray(concept.aliases) ? concept.aliases : [];
     const labelAliases = Object.entries(concept.labels).map(([lang, text]) => ({ lang, text, type: "canonical", exact: true, reviewStatus: "approved" }));
     const aliases = [...labelAliases, ...explicitAliases];
+    const seenAliases = new Set<string>();
+    const normalizedAliases: DictionaryAlias[] = aliases.map((alias) => ({
+      lang: String((alias as DictionaryAlias).lang),
+      text: String((alias as DictionaryAlias).text),
+      type: ((alias as DictionaryAlias).type ?? "canonical") as DictionaryAlias["type"],
+      exact: (alias as DictionaryAlias).exact ?? true,
+      reviewStatus: ((alias as DictionaryAlias).reviewStatus ?? "approved") as DictionaryAlias["reviewStatus"],
+      sourceId: (alias as DictionaryAlias).sourceId,
+      confidence: (alias as DictionaryAlias).confidence,
+    })).filter((alias) => {
+      // Published snapshots already contain label aliases. Reloading/importing
+      // must not append them again; differing review/provenance stays intact.
+      const identity = JSON.stringify(alias);
+      if (seenAliases.has(identity)) return false;
+      seenAliases.add(identity);
+      return true;
+    });
     return {
       conceptId: concept.conceptId,
       senseKey: concept.senseKey ?? concept.conceptId,
       category: concept.category,
+      partOfSpeech: concept.partOfSpeech && typeof concept.partOfSpeech === "object" ? Object.fromEntries(Object.entries(concept.partOfSpeech).filter(([, label]) => typeof label === "string" && label.length <= 20)) : undefined,
       definitions: concept.definitions ?? {},
       labels: concept.labels,
       isAnswerable: concept.isAnswerable ?? true,
       isGuessable: concept.isGuessable ?? true,
       status: concept.status ?? "approved",
-      aliases: aliases.map((alias) => ({
-        lang: String((alias as DictionaryAlias).lang),
-        text: String((alias as DictionaryAlias).text),
-        type: ((alias as DictionaryAlias).type ?? "canonical") as DictionaryAlias["type"],
-        exact: (alias as DictionaryAlias).exact ?? true,
-        reviewStatus: ((alias as DictionaryAlias).reviewStatus ?? "approved") as DictionaryAlias["reviewStatus"],
-        sourceId: (alias as DictionaryAlias).sourceId,
-        confidence: (alias as DictionaryAlias).confidence,
-      })),
+      relatedTo: Array.isArray(concept.relatedTo) ? [...new Set(concept.relatedTo.filter((surface): surface is string => typeof surface === "string" && surface.length <= 80))] : undefined,
+      relationLevel: concept.relationLevel === "near" || concept.relationLevel === "medium" || concept.relationLevel === "wide" ? concept.relationLevel : undefined,
+      aliases: normalizedAliases,
     } satisfies DictionaryConcept;
   });
   return {

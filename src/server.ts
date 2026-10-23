@@ -33,7 +33,9 @@ const logger = pino({
   level: process.env.DEBUG === "true" || process.env.DEBUG === "1" ? "debug" : "info",
 });
 
-const statusDefaults: Record<SourceKind, SourceStatus> = {
+type TikTokLabSourceKind = Exclude<SourceKind, "douyin">;
+
+const statusDefaults: Record<TikTokLabSourceKind, SourceStatus> = {
   tiktok: { source: "tiktok", status: "idle" },
   replay: { source: "replay", status: "idle" },
   simulator: { source: "simulator", status: "idle" },
@@ -55,7 +57,7 @@ class InteractionLab implements LabController {
   private readonly semanticGame!: SemanticGameService;
   private readonly adminConfig: AdminConfigService;
   private readonly dictionaryLibrary: DictionaryLibraryService;
-  private readonly statuses: Record<SourceKind, SourceStatus> = structuredClone(statusDefaults);
+  private readonly statuses: Record<TikTokLabSourceKind, SourceStatus> = structuredClone(statusDefaults);
   private readonly counts: Record<string, number> = {};
   private readonly eventTimes: number[] = [];
   private readonly recentEventBuffer: NormalizedLiveEvent[] = [];
@@ -78,7 +80,7 @@ class InteractionLab implements LabController {
     this.mapper = new ActionMapper(loadRulesSync());
     this.eventGateway = new EventGateway(logger, 1024 * 1024, () => this.recentEvents());
     this.actionGateway = new ActionGateway(logger);
-    this.semanticGateway = new SemanticGameGateway(logger, () => this.semanticGame.snapshot());
+    this.semanticGateway = new SemanticGameGateway(logger, () => this.semanticGame.snapshot(),{allowedOrigins:[`http://127.0.0.1:${process.env.PORT??3000}`,`http://localhost:${process.env.PORT??3000}`,`http://[::1]:${process.env.PORT??3000}`]});
     this.semanticGame = new SemanticGameService(this.semanticGateway, this.adminConfig, this.dictionaryLibrary.loadActive());
 
     this.bindSource(this.tiktok, "tiktok");
@@ -271,7 +273,7 @@ class InteractionLab implements LabController {
     this.semanticGateway.close();
   }
 
-  private bindSource(source: { onEvent: (callback: (event: import("./sources/LiveEventSource.js").SourceEvent) => void) => void; onStatus: (callback: (status: SourceStatus) => void) => void }, sourceKind: SourceKind): void {
+  private bindSource(source: { onEvent: (callback: (event: import("./sources/LiveEventSource.js").SourceEvent) => void) => void; onStatus: (callback: (status: SourceStatus) => void) => void }, sourceKind: TikTokLabSourceKind): void {
     source.onStatus((status) => {
       this.statuses[sourceKind] = { ...this.statuses[sourceKind], ...status };
       if (status.status !== "error") this.statuses[sourceKind].error = undefined;

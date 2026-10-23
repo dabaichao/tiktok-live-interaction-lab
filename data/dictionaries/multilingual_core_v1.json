@@ -2,13 +2,13 @@
   "schemaVersion": 1,
   "wordlistId": "multi_core_v1",
   "release": "2026-09-09",
-  "defaultLanguage": "en",
+  "defaultLanguage": "zh-Hans",
   "languages": ["en", "vi", "zh-Hans"],
   "sourceManifest": [
     { "sourceId": "local_seed_manual", "license": "project-authored-seed", "retrievedAt": "2026-09-09" }
   ],
   "concepts": [
-    { "conceptId": "nature.apple", "senseKey": "fruit_apple", "category": "nature", "definitions": { "zh-Hans": "水果的一种", "en": "a kind of fruit", "vi": "một loại trái cây" }, "labels": { "en": "apple", "vi": "quả táo", "zh-Hans": "苹果" } },
+    { "conceptId": "nature.apple", "senseKey": "fruit_apple", "category": "nature", "partOfSpeech": { "zh-Hans": "名词", "en": "noun" }, "definitions": { "zh-Hans": "水果的一种", "en": "a kind of fruit", "vi": "một loại trái cây" }, "labels": { "en": "apple", "vi": "quả táo", "zh-Hans": "苹果" } },
     { "conceptId": "nature.flower", "senseKey": "flower", "category": "nature", "labels": { "en": "flower", "vi": "hoa", "zh-Hans": "花" } },
     { "conceptId": "nature.forest", "senseKey": "forest", "category": "nature", "labels": { "en": "forest", "vi": "rừng", "zh-Hans": "森林" } },
     { "conceptId": "nature.mountain", "senseKey": "mountain", "category": "nature", "labels": { "en": "mountain", "vi": "núi", "zh-Hans": "山" } },
@@ -36,7 +36,7 @@
     { "conceptId": "travel.hotel", "senseKey": "hotel", "category": "travel", "labels": { "en": "hotel", "vi": "khách sạn", "zh-Hans": "酒店" } },
     { "conceptId": "travel.journey", "senseKey": "journey", "category": "travel", "labels": { "en": "journey", "vi": "hành trình", "zh-Hans": "旅程" } },
     { "conceptId": "travel.airport", "senseKey": "airport", "category": "travel", "labels": { "en": "airport", "vi": "sân bay", "zh-Hans": "机场" } },
-    { "conceptId": "travel.yacht", "senseKey": "yacht", "category": "travel", "labels": { "en": "yacht", "vi": "du thuyền", "zh-Hans": "游艇" } },
+    { "conceptId": "travel.yacht", "senseKey": "yacht", "category": "travel", "partOfSpeech": { "zh-Hans": "名词", "en": "noun" }, "labels": { "en": "yacht", "vi": "du thuyền", "zh-Hans": "游艇" } },
     { "conceptId": "travel.boat", "senseKey": "boat", "category": "travel", "labels": { "en": "boat", "vi": "thuyền", "zh-Hans": "船" } },
     { "conceptId": "travel.ship", "senseKey": "ship", "category": "travel", "labels": { "en": "ship", "vi": "tàu", "zh-Hans": "船舶" } },
     { "conceptId": "travel.sail", "senseKey": "sail", "category": "travel", "labels": { "en": "sail", "vi": "cánh buồm", "zh-Hans": "帆" } },

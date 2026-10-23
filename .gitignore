@@ -1,11 +1,19 @@
 node_modules/
+data/douyin/
+*.dpapi.json
+*.dpapi.json.*.tmp
 dist/
 dist-web/
 .env
 data/sessions/
 data/admin-config.json
+# Local dictionary proposals and the plaintext model credential config: never upload.
 data/dictionary-proposals/
 data/dictionary-library/
 coverage/
 .docx-review/
 *.log
+# Local observation samples and browser screenshots are not project source.
+.runtime/
+__pycache__/
+*.pyc

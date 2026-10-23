@@ -22,6 +22,8 @@ export interface EventUser {
   uniqueId?: string;
   nickname?: string;
   avatarUrl?: string;
+  identityLimited?: boolean;
+  nicknameMasked?: boolean;
 }
 
 export interface NormalizedLiveEvent {
@@ -51,7 +53,7 @@ export const normalizedLiveEventSchema = z.object({
   eventId: z.string().min(1),
   sessionId: z.string().min(1),
   sequence: z.number().int().positive(),
-  source: z.enum(["tiktok", "replay", "simulator"]),
+  source: z.enum(["tiktok", "douyin", "replay", "simulator"]),
   type: z.enum(normalizedEventTypes),
   receivedAt: z.number().int().nonnegative(),
   platformTimestamp: z.number().optional(),
@@ -63,6 +65,8 @@ export const normalizedLiveEventSchema = z.object({
       uniqueId: z.string().optional(),
       nickname: z.string().optional(),
       avatarUrl: z.string().optional(),
+      identityLimited: z.boolean().optional(),
+      nicknameMasked: z.boolean().optional(),
     })
     .optional(),
   payload: optionalUnknownRecord,

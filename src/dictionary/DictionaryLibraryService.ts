@@ -1,4 +1,5 @@
-import { readFile, readdir, stat, writeFile, mkdir } from "node:fs/promises";
+import { readFile, readdir, stat, writeFile, mkdir, rename, unlink } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { ConceptDictionary, type DictionaryStats } from "./ConceptDictionary.js";
@@ -48,6 +49,7 @@ interface SupplementEntry {
 
 const PACKAGE_SCHEMA_VERSION = 1;
 const DEFAULT_PACKAGE_ID = "builtin:multi_core_v1";
+const supplementWrites = new Map<string, Promise<unknown>>();
 
 export class DictionaryLibraryService {
   private readonly libraryDir: string;
@@ -88,18 +90,28 @@ export class DictionaryLibraryService {
     const raw = JSON.parse(input.content) as unknown;
     const snapshot = extractSnapshot(raw);
     const dictionary = new ConceptDictionary({ snapshot });
-    const packageId = `${safeFilePart(snapshot.wordlistId)}_${Date.now().toString(36)}`;
+    const packageId = `${safeFilePart(snapshot.wordlistId).slice(0, 64)}_${Date.now().toString(36)}_${randomUUID().slice(0, 12)}`;
     const importedAt = new Date().toISOString();
     const stored: StoredPackage = { schemaVersion: PACKAGE_SCHEMA_VERSION, packageId, packageType: input.packageType, importedAt, snapshot: dictionary.snapshot };
     await mkdir(this.libraryDir, { recursive: true });
     const fileName = `${packageId}.json`;
     const filePath = join(this.libraryDir, fileName);
-    await writeFile(filePath, JSON.stringify(stored, null, 2), "utf8");
-    const sizeBytes = Buffer.byteLength(JSON.stringify(stored), "utf8");
+    const content = JSON.stringify(stored, null, 2), temp = `${filePath}.tmp`;
+    try { await writeFile(temp, content, { encoding: "utf8", flag: "wx" }); await rename(temp, filePath); }
+    finally { await unlink(temp).catch(() => undefined); }
+    const sizeBytes = Buffer.byteLength(content, "utf8");
     return { packageId, packageType: input.packageType, wordlistId: dictionary.snapshot.wordlistId, release: dictionary.snapshot.release, languages: dictionary.snapshot.languages, sizeBytes, importedAt, stats: dictionary.stats(), active: false, fileName };
   }
 
   async addSupplements(input: { language: DictionaryLanguage; words: string[]; sourceModel: string }): Promise<{ accepted: number; duplicates: number; totalPending: number; entries: SupplementEntry[] }> {
+    // Routes create separate service instances; serialize by shared storage path.
+    const job = (supplementWrites.get(this.supplementPath) ?? Promise.resolve()).catch(() => undefined).then(() => this.commitSupplements(input));
+    supplementWrites.set(this.supplementPath, job);
+    void job.finally(() => { if (supplementWrites.get(this.supplementPath) === job) supplementWrites.delete(this.supplementPath); }).catch(() => undefined);
+    return job;
+  }
+
+  private async commitSupplements(input: { language: DictionaryLanguage; words: string[]; sourceModel: string }): Promise<{ accepted: number; duplicates: number; totalPending: number; entries: SupplementEntry[] }> {
     const existing = new Set<string>();
     const dictionaries = [ConceptDictionary.default()];
     for (const packageView of await this.uploadedViews()) {
@@ -110,7 +122,8 @@ export class DictionaryLibraryService {
     }
     for (const dictionary of dictionaries) {
       for (const concept of dictionary.snapshot.concepts) {
-        for (const label of Object.values(concept.labels)) if (label) existing.add(key(input.language, label));
+        const label = concept.labels[input.language];
+        if (label) existing.add(key(input.language, label));
         for (const alias of concept.aliases) if (alias.lang === input.language) existing.add(key(input.language, alias.text));
       }
     }
@@ -124,11 +137,13 @@ export class DictionaryLibraryService {
       const normalizedKey = key(input.language, word);
       if (existing.has(normalizedKey)) { duplicates += 1; continue; }
       existing.add(normalizedKey);
-      entries.push({ supplementId: `${Date.now().toString(36)}_${entries.length.toString(36)}`, language: input.language, word, sourceModel: input.sourceModel || "unknown", status: "pending", createdAt: new Date().toISOString() });
+      entries.push({ supplementId: randomUUID(), language: input.language, word, sourceModel: input.sourceModel || "unknown", status: "pending", createdAt: new Date().toISOString() });
     }
     if (entries.length > 0) {
       await mkdir(this.libraryDir, { recursive: true });
-      await writeFile(this.supplementPath, `${pending.concat(entries).map((item) => JSON.stringify(item)).join("\n")}\n`, "utf8");
+      const temp = `${this.supplementPath}.${randomUUID()}.tmp`;
+      try { await writeFile(temp, `${pending.concat(entries).map(item => JSON.stringify(item)).join("\n")}\n`, "utf8"); await rename(temp, this.supplementPath); }
+      finally { await unlink(temp).catch(() => undefined); }
     }
     return { accepted: entries.length, duplicates, totalPending: pending.length + entries.length, entries };
   }
@@ -163,8 +178,9 @@ export class DictionaryLibraryService {
     try {
       const text = await readFile(this.supplementPath, "utf8");
       return text.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line) as SupplementEntry).filter((item) => item.status === "pending");
-    } catch {
-      return [];
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw new Error("待审核补充词库无法读取或格式损坏，已停止写入，请修复后重试；原文件保留。");
     }
   }
 }

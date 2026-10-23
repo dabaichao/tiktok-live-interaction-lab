@@ -1,3 +1,5 @@
+import { roundGuessRejection } from "./GuessRules.js";
+
 export interface HintWordClientOptions {
   baseUrl?: string;
   model?: string;
@@ -7,11 +9,23 @@ export interface HintWordClientOptions {
   fixedModel?: string;
   apiKey?: string;
   timeoutMs?: number;
+  /** Opt-in for the Douyin managed game; do not change legacy TikTok requests. */
+  hy3LowReasoning?: boolean;
+  maxOutputTokens?: number;
 }
 
 export interface HintContext {
   label: string;
   value: string;
+}
+
+interface HintWordRequest {
+  count: number;
+  hints: HintContext[];
+  phase?: string;
+  language?: string;
+  excludeWords?: string[];
+  exactLength?: number;
 }
 
 export interface HintWordStatus {
@@ -23,10 +37,23 @@ export interface HintWordStatus {
   lastModelUsed?: string;
   timeoutMs: number;
   lastError?: string;
+  lastRequest?: ModelRequestDiagnostics;
+}
+
+export interface ModelRequestDiagnostics {
+  model: string;
+  httpStatus: number;
+  durationMs: number;
+  finishReason: "stop" | "length" | "content_filter" | "tool_calls" | "other";
+  contentChars: number;
+  acceptedWords: number;
+  completionTokens?: number;
+  reasoningTokens?: number;
 }
 
 type ChatResponse = {
-  choices?: Array<{ message?: { content?: unknown }; text?: unknown }>;
+  choices?: Array<{ message?: { content?: unknown }; text?: unknown; finish_reason?: unknown }>;
+  usage?: { completion_tokens?: unknown; completion_tokens_details?: { reasoning_tokens?: unknown }; completion_thinking_tokens?: unknown };
   error?: { message?: string };
 };
 
@@ -45,6 +72,9 @@ export class HintWordClient {
   private readonly timeoutMs: number;
   private lastError?: string;
   private lastModelUsed?: string;
+  private readonly hy3LowReasoning: boolean;
+  private readonly maxOutputTokens?: number;
+  private lastRequest?: ModelRequestDiagnostics;
 
   constructor(options: HintWordClientOptions = {}) {
     this.baseUrl = (options.baseUrl ?? process.env.HINT_LLM_BASE_URL ?? "https://www.ai68.asia/v1").replace(/\/$/, "");
@@ -55,6 +85,9 @@ export class HintWordClient {
     this.fixedModel = options.fixedModel ?? process.env.HINT_LLM_FIXED_MODEL ?? this.preferredModel;
     this.apiKey = options.apiKey ?? process.env.HINT_LLM_API_KEY;
     this.timeoutMs = options.timeoutMs ?? Number(process.env.HINT_LLM_TIMEOUT_MS ?? 45_000);
+    this.hy3LowReasoning = options.hy3LowReasoning === true;
+    this.maxOutputTokens = typeof options.maxOutputTokens === "number" && Number.isFinite(options.maxOutputTokens)
+      ? Math.min(16_000, Math.max(1_200, Math.floor(options.maxOutputTokens))) : undefined;
   }
 
   status(): HintWordStatus {
@@ -67,15 +100,16 @@ export class HintWordClient {
       lastModelUsed: this.lastModelUsed,
       timeoutMs: this.timeoutMs,
       lastError: this.lastError,
+      lastRequest: this.lastRequest ? { ...this.lastRequest } : undefined,
     };
   }
 
-  async generateWords(input: { count: number; hints: HintContext[]; phase?: string; language?: string; excludeWords?: string[] }): Promise<string[]> {
+  async generateWords(input: HintWordRequest): Promise<string[]> {
     if (!this.apiKey) return [];
     const count = Math.max(1, Math.min(2000, Math.floor(input.count)));
     const language = input.language ?? "en";
     const excluded = new Set((input.excludeWords ?? []).map((word) => this.normalizeWord(word)).filter(Boolean));
-    let lastError = "Hint LLM returned no valid words";
+    let lastError = "模型未返回合格词汇";
     const output: string[] = [];
     const excludedForRequest = new Set(excluded);
     for (const model of this.models()) {
@@ -97,10 +131,11 @@ export class HintWordClient {
     return [];
   }
 
-  private async requestWords(model: string, input: { count: number; hints: HintContext[]; phase?: string; language?: string; excludeWords?: string[] }, excluded: Set<string>, onError: (message: string) => void): Promise<string[]> {
+  private async requestWords(model: string, input: HintWordRequest, excluded: Set<string>, onError: (message: string) => void): Promise<string[]> {
     const count = input.count;
     const language = input.language ?? "en";
     for (let attempt = 0; attempt < 2; attempt += 1) {
+      const startedAt = Date.now();
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
       try {
@@ -110,12 +145,13 @@ export class HintWordClient {
           body: JSON.stringify({
             model,
             temperature: 0.2,
-            max_tokens: Math.min(8_000, Math.max(1_200, count * 16)),
+            max_tokens: this.maxOutputTokens ?? Math.min(8_000, Math.max(1_200, count * 16)),
+            ...(this.hy3LowReasoning && model.toLowerCase() === "hy3" ? { reasoning_effort: "low" } : {}),
             response_format: { type: "json_object" },
             messages: [
               {
                 role: "system",
-                content: `You generate candidate ${language} words for a live semantic guessing game. You do not know the hidden answer and must never reveal or directly infer it. Return only valid JSON. The exact accepted schema is {"schemaVersion":1,"items":[{"word":"..."}]}. Each word must be a useful ${language} word or short phrase, never an explanation, hint label, answer, or numbered list.`,
+                content: `You generate candidate ${language} words for a live semantic guessing game. You do not know the hidden answer and must never reveal or directly infer it. Return only valid JSON. The exact accepted schema is {"schemaVersion":1,"items":[{"word":"..."}]}. Each word must be a useful ${language} word or short phrase, never an explanation, hint label, answer, or numbered list.${input.exactLength !== undefined ? ` Every word must contain exactly ${input.exactLength} Unicode characters.${language === "zh-Hans" ? " Use only Chinese Han characters, with no spaces, digits, punctuation or emoji." : " Count internal spaces as characters."}` : ""}`,
               },
               {
                 role: "user",
@@ -123,6 +159,7 @@ export class HintWordClient {
                   task: "Generate bonus candidate words for the live game.",
                   count,
                   language,
+                  ...(input.exactLength !== undefined ? { exactLength: input.exactLength } : {}),
                   phase: input.phase ?? "unknown",
                   unlockedHints: input.hints,
                   excludeWords: [...excluded],
@@ -135,14 +172,25 @@ export class HintWordClient {
           signal: controller.signal,
         });
         const body = await response.json() as ChatResponse;
-        if (!response.ok) throw new Error(body.error?.message ?? `Hint LLM HTTP ${response.status}`);
+        const finish = body.choices?.[0]?.finish_reason;
         const content = body.choices?.[0]?.message?.content ?? body.choices?.[0]?.text;
-        const words = this.parseWords(content, excluded);
-        if (words.length === 0) throw new Error("Hint LLM returned no valid words");
+        this.lastRequest = {
+          model, httpStatus: response.status, durationMs: Date.now() - startedAt,
+          finishReason: finish === "stop" || finish === "length" || finish === "content_filter" || finish === "tool_calls" ? finish : "other",
+          contentChars: this.contentToText(content).length, acceptedWords: 0,
+          completionTokens: safeTokenCount(body.usage?.completion_tokens),
+          reasoningTokens: safeTokenCount(body.usage?.completion_tokens_details?.reasoning_tokens ?? body.usage?.completion_thinking_tokens),
+        };
+        if (!response.ok) { onError(`模型服务返回 HTTP ${response.status}`); continue; }
+        if (finish === "length") { onError("模型输出达到 token 上限，正文未完整生成；请检查思考预算与批量大小"); continue; }
+        const words = this.parseWords(content, excluded).filter((word) => input.exactLength === undefined || !roundGuessRejection(word, input.exactLength, language));
+        this.lastRequest.acceptedWords = Math.min(words.length, count);
+        if (words.length === 0) { onError("模型未返回合格词汇，请检查输出格式与字数要求"); continue; }
         this.lastModelUsed = model;
         return words.slice(0, count);
       } catch (error) {
-        onError(error instanceof Error ? `${model}: ${error.message}` : `${model}: ${String(error)}`);
+        // Provider errors can echo credentials or request bodies; never expose them.
+        onError(controller.signal.aborted ? "模型请求超时，请稍后重试" : "模型请求失败或返回格式无效，请检查服务地址和网络");
       } finally {
         clearTimeout(timeout);
       }
@@ -212,10 +260,14 @@ export class HintWordClient {
   }
 
   private normalizeWord(word: string): string {
-    return word.trim().toLowerCase().replace(/\s+/g, " ");
+    return word.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
   }
 }
 
 function uniqueModels(models: string[]): string[] {
   return [...new Set(models.map((model) => model.trim()).filter(Boolean))];
+}
+
+function safeTokenCount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }

@@ -19,6 +19,51 @@ describe("ConceptDictionary", () => {
     expect(stats.missingLabelsByLanguage.vi).toBeGreaterThan(0);
     expect(missingLabelsForLanguage(dictionary.snapshot.concepts, "vi").some((concept) => concept.conceptId === "legacy.creator")).toBe(true);
   });
+  it("does not invent localized answers by falling back to English",()=>{
+    const dictionary=ConceptDictionary.default();
+    expect(dictionary.answerWords("zh-Hans")).not.toContain("creator");
+    expect(dictionary.answerWords("zh-Hans").every(word=>/^\p{Script=Han}+$/u.test(word))).toBe(true);
+    expect(dictionary.conceptsFor("nonexistent-language","answerable")).toEqual([]);
+  });
+  it("rejects invalid labels and duplicate concept IDs before publication",()=>{
+    const original=ConceptDictionary.default().snapshot;
+    const invalid=structuredClone(original);(invalid.concepts[0].labels as any)["zh-Hans"]=42;
+    expect(()=>new ConceptDictionary({snapshot:invalid})).toThrow("词面与提示");
+    const duplicate=structuredClone(original);duplicate.concepts.push(duplicate.concepts[0]);
+    expect(()=>new ConceptDictionary({snapshot:duplicate})).toThrow("重复");
+  });
+  it("keeps normalization idempotent across serialized snapshot reloads", () => {
+    const first = ConceptDictionary.default();
+    const original = structuredClone(first.snapshot);
+    let reloaded = first;
+    for (let round = 0; round < 4; round++) {
+      reloaded = new ConceptDictionary({ snapshot: JSON.parse(JSON.stringify(reloaded.snapshot)) });
+      expect(reloaded.snapshot).toEqual(first.snapshot);
+      expect(reloaded.stats()).toEqual(first.stats());
+      expect(reloaded.answerWords("zh-Hans")).toEqual(first.answerWords("zh-Hans"));
+    }
+    expect(first.snapshot).toEqual(original);
+  });
+  it("only removes identical aliases and preserves review and provenance differences", () => {
+    const snapshot = structuredClone(ConceptDictionary.default().snapshot);
+    const concept = snapshot.concepts[0];
+    snapshot.concepts = [concept];
+    concept.labels = { "zh-Hans": "主词" };
+    const approved = { lang: "zh-Hans", text: "异名", type: "synonym" as const, exact: true, reviewStatus: "approved" as const, sourceId: "review-a", confidence: 0.9 };
+    concept.aliases = [approved, { ...approved }, { ...approved, reviewStatus: "pending" },
+      { ...approved, sourceId: "review-b" }, { ...approved, confidence: 0.8 },
+      { ...approved, exact: false }, { ...approved, text: "待审词", reviewStatus: "pending" },
+      { ...approved, text: "拒绝词", reviewStatus: "rejected" }];
+    const original = structuredClone(snapshot);
+    const dictionary = new ConceptDictionary({ snapshot });
+    expect(dictionary.snapshot.concepts[0].aliases).toHaveLength(8);
+    expect(dictionary.snapshot.concepts[0].aliases.filter(a => a.text === "异名")).toHaveLength(5);
+    expect(dictionary.resolve("异名", "zh-Hans").status).toBe("resolved");
+    expect(dictionary.resolve("待审词", "zh-Hans").status).toBe("unknown");
+    expect(dictionary.resolve("拒绝词", "zh-Hans").status).toBe("unknown");
+    expect(snapshot).toEqual(original);
+    expect(new ConceptDictionary({ snapshot: dictionary.snapshot }).snapshot).toEqual(dictionary.snapshot);
+  });
 });
 
 describe("DictionaryGapFillClient", () => {

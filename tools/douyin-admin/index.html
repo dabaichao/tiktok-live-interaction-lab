@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>抖音直播互动后台</title>
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main class="shell">
+    <header class="hero">
+      <div>
+        <p class="eyebrow">DOUYIN LIVE / ADMIN</p>
+        <h1>抖音游戏运营后台</h1>
+        <p>连接直播 · 配置互动 · 管理猜词</p>
+      </div>
+      <div class="connection"><i id="statusDot"></i><strong id="statusText">未启动</strong></div>
+    </header>
+    <div class="operator-status"><span id="opAccount">账号：等待状态</span><span id="opGameState">游戏：等待状态</span><span id="opRoomScope">尚未选择直播间</span></div>
+    <nav class="operator-nav" aria-label="运营功能">
+      <button data-ops-tab="connection" class="active" aria-current="page">直播连接</button><button data-ops-tab="events">实时事件流</button><button data-ops-tab="catalog">礼物库</button><button data-ops-tab="rules">互动规则</button><button data-ops-tab="game">游戏设置</button><button data-ops-tab="records">测试与执行记录</button>
+    </nav>
+    <p id="opFeedback" class="feedback" role="status" aria-live="polite"></p>
+    <div id="ops-connection">
+
+    <section class="mode-switch" aria-label="抖音连接方式">
+      <button id="showQuick" class="active"><span>推荐</span>快速连接</button>
+      <button id="showOfficial"><span>稳定备用</span>官方小玩法</button>
+    </section>
+
+    <section id="quickPanel" class="card quick-card">
+      <div class="quick-copy"><span>WEBCAST / QUICK CONNECT</span><h2>扫码登录，自动连接直播互动</h2><p>无需复制 Cookie。在独立的抖音官方窗口完成登录，登录态自动同步到本机；填好直播间后即可联动游戏。</p></div>
+      <div class="quick-form">
+        <label class="room-input">抖音直播间链接 / web_rid<input id="webcastRoom" autocomplete="off" placeholder="https://live.douyin.com/xxxxxxxx" /></label>
+        <label class="room-input">常用直播间<select id="opRecentRooms"><option value="">选择后填入，不会立即连接</option></select></label>
+        <div class="login-panel">
+          <strong id="loginTitle">抖音登录助手</strong>
+          <p id="loginMessage" role="status" aria-live="polite">进入后台时，未提供登录态会自动打开一次官方登录窗口。</p>
+          <div class="quick-actions"><button id="loginStart" class="primary">扫码登录并连接</button><button id="loginCancel" disabled>取消登录</button></div>
+          <small id="loginPersistenceNotice">正在确认本机登录缓存状态。首次扫码、验证码由你本人操作；不读取日常浏览器账号。</small>
+        </div>
+        <div class="quick-actions"><button id="webcastStart">连接 / 切换直播间</button><button id="quickStop">停止数据（保留登录）</button><button id="clearWebcastCookie" class="danger">退出账号并断开</button></div>
+        <p id="webcastFeedback" class="feedback" aria-live="polite"></p>
+        <p id="cookieState" class="credential-status">等待登录状态；未登录仍可尝试匿名接收聊天。</p>
+        <details class="cookie-help"><summary>高级备用：手动提供 Cookie</summary>
+          <label>抖音网页登录 Cookie<input id="webcastCookie" type="password" autocomplete="off" spellcheck="false" placeholder="仅在自动登录不可用时填写，留空复用当前登录态" /></label>
+          <ol><li>在 Chrome 或 Edge 打开 <a href="https://live.douyin.com/" target="_blank" rel="noopener noreferrer">抖音网页版</a>，登录你自己的账号并进入直播间。</li><li>按 F12 打开开发者工具，选择 Network（网络），然后刷新直播间。</li><li>选中发往 live.douyin.com 的请求，打开 Headers（标头）→ Request Headers（请求标头），复制 Cookie 字段的值。不是 Response Headers 中的 Set-Cookie，也不需要复制整段请求。</li><li>回到此处，粘贴到密码框并点击连接。需要包含 sessionid、sessionid_ss 或 sid_tt 等登录字段；填写不代表登录仍有效。</li></ol>
+          <p>Cookie 等同登录凭证，请勿发送到聊天、截图或提交到仓库。有效格式的登录字段会在本机加密保存，输入成功后清空密码框；重启自动恢复，退出账号才清除。平台到期或拒绝登录时需重新扫码，暂时没有礼物事件不代表失效。此功能是本机网页登录助手，不是抖音官方开放平台 OAuth 授权。</p>
+        </details>
+        <small class="keep-open">直播期间请保持本后台页面打开；协议变化时可切换官方通道。</small>
+      </div>
+    </section>
+
+    <section id="officialNotice" class="notice hidden">
+      <strong>官方接入模式</strong>
+      <span>按房间 ID 和小玩法 AppID 启动平台回调，需要已挂载玩法和公网 HTTPS 地址。</span>
+    </section>
+
+    <section id="officialPanel" class="grid hidden">
+      <article class="card setup-card">
+        <div class="card-title"><div><span>01</span><h2>直播与凭证</h2></div><small>凭证只保存在当前进程内存</small></div>
+        <div class="fields">
+          <label>直播间房间 ID<input id="roomId" autocomplete="off" placeholder="例如：123456789" /></label>
+          <label>小玩法 AppID<input id="appId" autocomplete="off" placeholder="例如：ttxxxxxxxx" /></label>
+          <label>Access Token<input id="accessToken" type="password" autocomplete="off" placeholder="可由环境变量 DOUYIN_ACCESS_TOKEN 提供" /></label>
+          <label>数据推送密钥<input id="pushSecret" type="password" autocomplete="off" placeholder="用于校验 x-signature" /></label>
+        </div>
+        <label class="catalog-label">礼物 ID 映射（可选 JSON）
+          <textarea id="giftCatalog" spellcheck="false" placeholder='{"加密礼物ID":{"name":"小心心"}}'></textarea>
+        </label>
+        <div class="actions">
+          <button id="startButton" class="primary">启动官方数据与游戏</button>
+          <button id="restartButton">仅重新开局</button>
+          <button id="stopButton" class="danger">停止抖音数据</button>
+        </div>
+        <p id="feedback" class="feedback" aria-live="polite"></p>
+      </article>
+
+      <article class="card monitor-card official-monitor">
+        <div class="card-title"><div><span>02</span><h2>数据任务</h2></div><small id="officialLastCallback">尚未收到回调</small></div>
+        <div class="task-list">
+          <div class="task"><i id="task-live_comment"></i><div><strong>评论</strong><small>live_comment</small></div><b id="taskText-live_comment">未启动</b></div>
+          <div class="task"><i id="task-live_like"></i><div><strong>点赞</strong><small>live_like</small></div><b id="taskText-live_like">未启动</b></div>
+          <div class="task"><i id="task-live_gift"></i><div><strong>礼物</strong><small>live_gift</small></div><b id="taskText-live_gift">未启动</b></div>
+        </div>
+        <div class="callback">
+          <span>官方推送回调</span>
+          <code id="callbackUrl"></code>
+          <button id="copyButton">复制</button>
+        </div>
+      </article>
+    </section>
+
+    <section class="card live-monitor">
+      <div class="card-title"><div><span>LIVE</span><h2>当前数据通道</h2></div><small id="lastCallback">尚未收到互动</small></div>
+      <div class="channel-status"><div><small>连接方式</small><strong id="modeText">等待连接</strong></div><div><small>直播间</small><strong id="roomText">—</strong></div><div><small>消息状态</small><strong id="messageText">未接收</strong></div></div>
+      <div class="stats">
+        <div><strong id="chatCount">0</strong><span>评论</span></div>
+        <div><strong id="likeCount">0</strong><span>点赞事件</span></div>
+        <div><strong id="giftCount">0</strong><span>礼物</span></div>
+        <div><strong id="duplicateCount">0</strong><span>重复过滤</span></div>
+      </div>
+      <div class="reception-status"><p id="giftState">礼物通道：等待连接</p><p id="likeState">点赞通道：等待连接</p><p id="identityState">观众身份：等待连接</p><p id="transportState">抖音上游：未连接</p></div>
+      <details class="decoder-details"><summary>接收与解码诊断（仅运营后台显示）</summary><p id="diagnosticSummary">等待浏览器上报诊断</p><pre id="diagnosticMethods">无消息</pre><small>只保留消息类型、固定失败阶段与数量，不记录原始内容、异常文字、Cookie 或签名。原始收到 → 解码成功 → 后端接收；旧记录未上报失败阶段时无法追溯原因。</small></details>
+    </section>
+
+    <section class="card launch-card">
+      <div><span>游戏画面</span><h2>同一套语义猜词，无需复制游戏代码</h2><p>后台启动成功后会自动开启新一局；也可以在直播过程中单独重新开局。</p></div>
+      <div class="launch-actions"><a href="/test-word-game/" target="_blank">打开游戏</a><a class="primary-link" href="/douyin-split/" target="_blank">后台 + 游戏分屏</a></div>
+    </section>
+    </div>
+
+    <section id="ops-events" class="card ops-card hidden">
+      <div class="ops-title"><div><h2>真实直播事件流</h2><p>展示当前连接实际收到的评论、进房、关注、分享、点赞与礼物；最新消息始终在最上方。</p></div><button id="opRefreshEvents">刷新事件流</button></div>
+      <div class="event-metrics" aria-label="当前连接事件统计">
+        <div><strong id="evChatCount">0</strong><span>评论</span></div><div><strong id="evJoinCount">0</strong><span>进房</span></div><div><strong id="evFollowCount">0</strong><span>关注</span></div><div><strong id="evShareCount">0</strong><span>分享</span></div><div><strong id="evLikeCount">0</strong><span>点赞消息</span></div><div><strong id="evGiftCount">0</strong><span>礼物完成</span></div>
+      </div>
+      <div class="ops-toolbar event-toolbar">
+        <label>事件类型<select id="opEventType"><option value="">全部互动</option><option value="chat">评论</option><option value="gift">礼物</option><option value="like">点赞</option><option value="social">关注 / 分享</option><option value="join">进房</option></select></label>
+        <label>搜索观众或内容<input id="opEventSearch" placeholder="昵称、账号、评论、礼物" /></label>
+        <label class="check-label event-check"><input id="opShowRoomStats" type="checkbox" />显示高频房间统计</label>
+      </div>
+      <p id="opEventMeta" class="ops-note">等待读取真实直播数据。</p>
+      <div id="opEventStream" class="event-stream" aria-live="polite"></div>
+    </section>
+
+    <section id="ops-catalog" class="card ops-card hidden">
+      <div class="ops-title"><div><h2>当前直播间礼物库</h2><p id="opCatalogMeta">等待连接后同步</p></div><button id="opSyncCatalog" class="primary">同步平台礼物</button></div>
+      <div class="ops-toolbar"><label>搜索礼物<input id="opGiftSearch" placeholder="名称或礼物 ID" /></label><label>来源<select id="opGiftSource"><option value="">全部来源</option><option value="platform">平台目录</option><option value="observed">直播实收</option><option value="imported">手动导入</option></select></label><label>配置状态<select id="opGiftConfigured"><option value="">全部</option><option value="yes">有专属规则</option><option value="no">未单独配置</option></select></label><label>价格排序<select id="opGiftSort"><option value="name">默认顺序</option><option value="asc">从低到高</option><option value="desc">从高到低</option></select></label></div>
+      <p class="ops-note">平台目录不保证完整或全部可赠送；直播实收仅代表收到过的礼物。规则按礼物 ID 匹配，不按名称猜测。</p>
+      <div id="opGiftGrid" class="gift-grid"></div>
+      <details class="ops-details"><summary>导入礼物 JSON 包</summary><p>格式：数组，每项包含 id、name，可选 price（单价）、icon（HTTPS 图片）。价格单位沿用平台，不视为人民币。</p><pre>[{"id":"礼物ID","name":"礼物名称","price":1,"icon":""}]</pre><label>选择文件<input id="opCatalogFile" type="file" accept=".json,application/json" /></label><button id="opImportCatalog">导入当前直播间</button></details>
+    </section>
+
+    <section id="ops-rules" class="card ops-card hidden">
+      <div class="ops-title"><div><h2>互动规则</h2><p>当前为抖音全局规则，切换直播间仍沿用。指定礼物优先，其次价格区间，最后默认规则；每次只匹配一条。</p></div><button id="opNewRule" class="primary">新增规则</button></div>
+      <p class="ops-note">多个效果需在同一规则中勾选。关闭规则后会继续匹配兜底规则；若想让某礼物仅展示，请保留启用但不勾选任何效果。价格区间重叠时，列表中靠前的规则优先。</p>
+      <div id="opRuleList" class="rule-list"></div>
+      <form id="opRuleForm" class="ops-editor hidden">
+        <h3 id="opRuleTitle">新增规则</h3>
+        <div class="ops-fields">
+          <label>规则名称<input id="rName" maxlength="100" required /></label>
+          <label>触发事件<select id="rTrigger"><option value="gift">礼物</option><option value="like">点赞</option><option value="follow">关注</option><option value="share">分享</option></select></label>
+          <label>匹配范围<select id="rMatch"><option value="gift">指定礼物</option><option value="price">礼物单价范围</option><option value="default">此事件的默认规则</option></select></label>
+          <label>从礼物库选择<select id="rGiftSelect"><option value="">也可手动填礼物 ID</option></select></label>
+          <label>礼物 ID<input id="rGiftId" maxlength="100" /></label>
+          <label>最低单价<input id="rMin" type="number" min="0" max="1000000000" value="0" /></label>
+          <label>最高单价<input id="rMax" type="number" min="0" max="1000000000" value="1000000000" /></label>
+          <label>点赞累计阈值<input id="rEvery" type="number" min="1" max="1000000" value="1" /><small>按每位观众累计实际点赞数，不是消息条数；无用户冷却。</small></label>
+        </div>
+        <label class="check-label"><input id="rEnabled" type="checkbox" checked />启用此规则</label>
+        <div class="effect-editor">
+          <div><label class="check-label"><input id="rWords" type="checkbox" />随机词</label><label>数量 / 倍率<input id="rWordsAmount" type="number" min="1" max="10000" value="10" /></label><label>计算方式<select id="rWordsBasis"><option value="quantity">每份礼物 / 每次触发</option><option value="value">平台总价值 × 倍率</option><option value="event">整笔事件固定数量</option></select></label><label>词汇来源<select id="rWordsSource"><option value="llm">AI 根据当前提示生成</option><option value="local">本地词库随机</option></select></label></div>
+          <div><label class="check-label"><input id="rTime" type="checkbox" />增加时间</label><label>秒数<input id="rTimeAmount" type="number" min="1" max="10000" value="30" /></label><label>计算方式<select id="rTimeBasis"><option value="quantity">每份礼物 / 每次触发</option><option value="event">整笔事件固定秒数</option><option value="value">平台总价值 × 秒数</option></select></label></div>
+          <div><label class="check-label"><input id="rHint" type="checkbox" />解锁提示</label><label>条数<input id="rHintAmount" type="number" min="1" max="10000" value="1" /></label><label>计算方式<select id="rHintBasis"><option value="event">整笔事件固定条数</option><option value="quantity">每份礼物 / 每次触发</option></select></label><small>提示达到上限后不再解锁，也不会自动转为加时。</small></div>
+        </div>
+        <div class="actions"><button type="submit" class="primary">保存规则并立即生效</button><button id="opCancelRule" type="button">取消编辑</button></div>
+      </form>
+      <div class="actions"><button id="opResetRules" class="danger">恢复默认规则</button><button id="opReload">重新读取后台配置</button></div>
+    </section>
+
+    <section id="ops-game" class="card ops-card hidden">
+      <div class="ops-title"><div><h2>猜词游戏设置</h2><p>抖音独立保存；修改不会改写 TikTok 配置。</p></div><button id="opReloadGame">重新读取游戏设置</button></div>
+      <div class="actions"><button data-game-action="start" class="primary">开始 / 新开一局</button><button data-game-action="pause">暂停游戏</button><button data-game-action="resume">继续游戏</button><button data-game-action="next">跳到下一局</button></div>
+      <form id="opGameForm">
+        <h3>题目与回合</h3><div class="ops-fields">
+          <label>语言<select id="gLanguage"><option value="zh-Hans">中文</option><option value="en">英文</option><option value="vi">越南语</option></select></label>
+          <label>题库 / 词库<select id="gDictionary"></select></label>
+          <label>固定答案<input id="gAnswer" maxlength="160" placeholder="留空使用题库轮换" /></label>
+          <label>每局时长（秒）<input id="gDuration" type="number" min="30" max="3600" required /></label>
+          <label>结算时长（秒）<input id="gSettlement" type="number" min="0.1" max="120" step="0.1" required /></label>
+          <label>固定答案的方向提示<input id="gDirection" maxlength="160" placeholder="例如：水果的一种；轮换题库时留空" /></label>
+        </div>
+        <p class="ops-note">猜词自动跟随答案字数；未解锁的提示不会传给生成模型。自定义方向提示仅用于固定答案。</p>
+        <label class="check-label"><input id="gTimedHints" type="checkbox" />按 25% / 50% / 75% 阶段解锁方向、开头、长度提示</label>
+        <h3>积分奖励</h3><div class="ops-fields">
+          <label>猜中奖励<input id="gWinner" type="number" min="0" max="100000" /></label><label>相似度第二名<input id="gSecond" type="number" min="0" max="100000" /></label><label>相似度第三名<input id="gThird" type="number" min="0" max="100000" /></label><label>最佳助攻<input id="gAssist" type="number" min="0" max="100000" /></label>
+        </div>
+        <h3>随机词与模型</h3><div class="ops-fields">
+          <label>API 地址<input id="gApi" type="url" required /></label><label>路由方式<select id="gRouting"><option value="preferred-fallback">优先模型 + 失败兜底</option><option value="fixed">固定模型</option></select></label><label>优先模型<input id="gPreferred" required /></label><label>兜底模型（逗号分隔）<input id="gFallbacks" /></label><label>固定模型<input id="gFixed" required /></label><label>超时（毫秒）<input id="gTimeout" type="number" min="1000" max="180000" /></label><label>单批上限<input id="gBatch" type="number" min="1" max="100" /></label>
+        </div>
+        <label class="check-label"><input id="gLocalFallback" type="checkbox" />AI 不足时允许本地词库补足（执行记录会区分实际完成数量）</label>
+        <p class="ops-note">接口密钥继续从本机服务环境读取，不在此页面显示。大批词汇分批生成，未完成部分在执行记录中保留。</p>
+        <div class="actions"><button class="primary" type="submit">保存设置并新开一局（保留积分）</button></div>
+      </form>
+      <details class="ops-details"><summary>词库包管理</summary><p id="opLibraryStats"></p><label>包类型<select id="opDictionaryType"><option value="question-bank">题目库</option><option value="wordlist">词库</option></select></label><label>上传项目标准词典 JSON 包<input id="opDictionaryFile" type="file" accept=".json,application/json" /></label><button id="opImportDictionary">导入词库包</button></details>
+    </section>
+
+    <section id="ops-records" class="card ops-card hidden">
+      <h2>隔离测试</h2><p class="ops-note">仅预演规则计算，不调用模型、不投递直播事件、不改变积分。点赞阈值从 0 开始计算。</p>
+      <form id="opSimulateForm"><div class="ops-fields"><label>事件<select id="sTrigger"><option value="gift">礼物</option><option value="like">点赞</option><option value="follow">关注</option><option value="share">分享</option></select></label><label>从礼物库选择<select id="sGiftSelect"><option value="">手动填写</option></select></label><label>礼物 ID<input id="sGiftId" /></label><label>单价（未知则留空）<input id="sPrice" type="number" min="0" max="1000000000" /></label><label>数量 / 点赞数<input id="sQuantity" type="number" min="1" max="1000000" value="1" required /></label></div><button type="submit" class="primary">预演已保存规则</button></form>
+      <div id="opSimulation" class="simulation-result" aria-live="polite">选择一个礼物，查看它会触发什么效果。</div>
+      <div class="ops-title"><div><h2>真实游戏效果执行记录</h2><p>评论、进房及未配置互动请到“实时事件流”查看。</p></div><button id="opRefreshRecords">刷新记录</button></div><p class="ops-note">礼物剩余词次数在自然换局后保留，按新题线索继续；不会重复加时或解锁提示。停止采集、换房、手动切题、暂停和服务重启会取消未完成词，不自动重放历史礼物。本机保留执行日志。</p>
+      <label class="check-label"><input id="opShowDisplayOnly" type="checkbox" />显示历史上的“仅记录、无效果”项目</label>
+      <p id="opRecordMeta" class="ops-note"></p>
+      <div class="table-scroll"><table class="ops-table"><thead><tr><th>时间 / 观众</th><th>互动 / 规则</th><th>随机词：完成 / 应发</th><th>已加时 / 提示</th><th>状态与说明</th></tr></thead><tbody id="opRecords"></tbody></table></div>
+    </section>
+  </main>
+  <script src="/vendor/dycast/mssdk.js"></script>
+  <script type="module" src="./app.js"></script>
+  <script type="module" src="./operations.js"></script>
+</body>
+</html>

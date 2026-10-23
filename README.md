@@ -4,7 +4,7 @@
 
 ## 快速开始
 
-需要 Node.js 20+：
+需要 Node.js 22.12+（与 package.json 的版本要求一致）：
 
 ```bash
 npm install
@@ -116,4 +116,26 @@ Embedding 默认连接本机 OpenAI 兼容服务：`EMBEDDING_BASE_URL=http://12
 
 ## 约束
 
-第一阶段不会自动登录 TikTok、抓取 Cookie、处理 CAPTCHA，也不保存密码、Cookie、OAuth 或 session token。请优先连接自己或已获许可的公开直播。
+TikTok 通道不自动登录、不抓取 Cookie、不处理 CAPTCHA。抖音有独立扫码登录助手：由用户在平台窗口完成登录，只将登录凭证用 Windows 当前账号 DPAPI 加密保存到本机，不保存密码、不绕过验证码。请优先连接自己或已获许可的公开直播。
+
+## 抖音独立后台
+
+```bash
+npm run build
+npm run start:douyin
+```
+
+打开 <http://127.0.0.1:3002/douyin-split/>；游戏页为 <http://127.0.0.1:3002/test-word-game/>，游戏 WebSocket 为 `ws://127.0.0.1:8767/word-game`。配置与登录缓存放在被 Git 忽略的 `data/douyin/`，不会覆盖 TikTok 配置。停止数据、切换房间和正常重启保留登录缓存，明确退出账号才删除缓存；平台过期或拒绝凭证后仍需要重新登录。
+
+快速连接目前由后台页面解析直播消息，直播时必须保持该后台打开。连接中、收到真实数据、向量模型已验证是不同状态；没有收到礼物不能直接说明登录失败。模型不可用时关联度会使用明确标识的本地规则，不能当作真实向量分数。
+
+隔离验收（不连接平台、不使用真实凭证或付费模型）：
+
+```bash
+npm test
+node tools/verify-douyin-operations.mjs
+node tools/verify-douyin-login-cache.mjs
+node tools/verify-stability.mjs
+```
+
+后三个脚本需先构建，分别占用临时测试端口 3012/8772、3013/8773、3014/8774，并只停止自己创建的进程。登录缓存验收使用合成凭证；压力测试使用本机模拟向量服务，不能代表真实模型或直播平台吞吐量。

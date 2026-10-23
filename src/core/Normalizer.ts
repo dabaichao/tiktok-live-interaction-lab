@@ -65,6 +65,8 @@ function userFrom(data: AnyRecord): EventUser | undefined {
     ),
     nickname: stringValue(pick(user, "nickname", "displayName", "name"), pick(data, "nickname", "displayName")),
     avatarUrl: extractAvatarUrl(user, data),
+    identityLimited: booleanValue(pick(user, "identityLimited"), pick(data, "identityLimited")),
+    nicknameMasked: booleanValue(pick(user, "nicknameMasked"), pick(data, "nicknameMasked")),
   };
   return Object.values(result).some((value) => value !== undefined) ? result : undefined;
 }
